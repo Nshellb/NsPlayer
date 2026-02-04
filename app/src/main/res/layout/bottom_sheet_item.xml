@@ -13,17 +13,27 @@
         android:maxLines="1"
         android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1" />
 
-    <Button
+    <TextView
         android:id="@+id/actionRename"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="@string/action_rename" />
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="12dp"
+        android:text="@string/action_rename"
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
 
-    <Button
+    <TextView
         android:id="@+id/actionProperties"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/action_properties" />
+        android:layout_marginTop="6dp"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="12dp"
+        android:text="@string/action_properties"
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
 </LinearLayout>

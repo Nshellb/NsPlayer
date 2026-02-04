@@ -4,8 +4,10 @@ import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.view.View
 import android.widget.Button
 import android.widget.RadioGroup
@@ -30,6 +32,10 @@ import com.nshell.nsplayer.ui.VideoListAdapter
 import com.nshell.nsplayer.ui.VideoMode
 import com.nshell.nsplayer.ui.VideoSortMode
 import com.nshell.nsplayer.ui.VideoSortOrder
+import java.text.DateFormat
+import java.util.Date
+import java.util.Locale
+import android.text.format.Formatter
 
 class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
@@ -510,8 +516,8 @@ class MainActivity : AppCompatActivity() {
         val content = layoutInflater.inflate(R.layout.bottom_sheet_item, null)
         val title = content.findViewById<TextView>(R.id.bottomSheetTitle)
         title.text = item.title
-        val renameButton = content.findViewById<Button>(R.id.actionRename)
-        val propertiesButton = content.findViewById<Button>(R.id.actionProperties)
+        val renameButton = content.findViewById<TextView>(R.id.actionRename)
+        val propertiesButton = content.findViewById<TextView>(R.id.actionProperties)
 
         val dialog = BottomSheetDialog(this)
         dialog.setContentView(content)
@@ -521,12 +527,229 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }
         propertiesButton.setOnClickListener {
-            Toast.makeText(this, getString(R.string.action_not_ready), Toast.LENGTH_SHORT).show()
+            showItemPropertiesDialog(item)
             dialog.dismiss()
         }
 
         dialog.show()
     }
+
+    private fun showItemPropertiesDialog(item: DisplayItem) {
+        val properties = loadItemProperties(item)
+        val content = layoutInflater.inflate(R.layout.dialog_item_properties, null)
+        content.findViewById<TextView>(R.id.propertiesTitle).text = properties.title
+        content.findViewById<TextView>(R.id.propertiesType).text = properties.typeLabel
+        content.findViewById<TextView>(R.id.propertiesNameValue).text = properties.fullName
+        content.findViewById<TextView>(R.id.propertiesLocationValue).text = properties.location
+        content.findViewById<TextView>(R.id.propertiesSizeValue).text = properties.size
+        content.findViewById<TextView>(R.id.propertiesModifiedValue).text = properties.modified
+        content.findViewById<TextView>(R.id.propertiesSubtitleValue).text = properties.subtitle
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(content)
+            .create()
+        dialog.setCanceledOnTouchOutside(true)
+        content.findViewById<Button>(R.id.propertiesClose).setOnClickListener { dialog.dismiss() }
+        dialog.show()
+    }
+
+    private fun loadItemProperties(item: DisplayItem): ItemProperties {
+        val typeLabel = if (item.type == DisplayItem.Type.VIDEO) {
+            getString(R.string.property_type_file)
+        } else {
+            getString(R.string.property_type_folder)
+        }
+        return if (item.type == DisplayItem.Type.VIDEO) {
+            val meta = queryVideoMetadata(item.contentUri)
+            val fullName = meta?.displayName ?: item.title
+            val location = meta?.relativePath ?: getString(R.string.property_unknown)
+            val size = if (meta != null) {
+                Formatter.formatFileSize(this, meta.sizeBytes)
+            } else {
+                getString(R.string.property_unknown)
+            }
+            val modified = meta?.modifiedSeconds?.takeIf { it > 0 }
+                ?.let { formatModifiedDate(it) }
+                ?: getString(R.string.property_unknown)
+            val subtitle = if (meta != null && hasSubtitle(meta.relativePath, meta.displayName)) {
+                getString(R.string.property_subtitle_yes)
+            } else {
+                getString(R.string.property_subtitle_no)
+            }
+            ItemProperties(
+                title = item.title,
+                typeLabel = typeLabel,
+                fullName = fullName,
+                location = location,
+                size = size,
+                modified = modified,
+                subtitle = subtitle
+            )
+        } else {
+            val folderInfo = queryFolderInfo(item)
+            val location = when {
+                item.type == DisplayItem.Type.HIERARCHY && item.bucketId.isNullOrEmpty() ->
+                    getString(R.string.property_root)
+                item.type == DisplayItem.Type.HIERARCHY -> item.bucketId ?: getString(R.string.property_unknown)
+                else -> folderInfo?.relativePath ?: getString(R.string.property_unknown)
+            }
+            val size = folderInfo?.sizeBytes?.takeIf { it > 0 }
+                ?.let { Formatter.formatFileSize(this, it) }
+                ?: if (folderInfo != null) {
+                    Formatter.formatFileSize(this, 0L)
+                } else {
+                    getString(R.string.property_unknown)
+                }
+            val modified = folderInfo?.modifiedSeconds?.takeIf { it > 0 }
+                ?.let { formatModifiedDate(it) }
+                ?: getString(R.string.property_unknown)
+            ItemProperties(
+                title = item.title,
+                typeLabel = typeLabel,
+                fullName = item.title,
+                location = location,
+                size = size,
+                modified = modified,
+                subtitle = getString(R.string.property_subtitle_na)
+            )
+        }
+    }
+
+    private fun queryVideoMetadata(contentUri: String?): VideoMeta? {
+        val uri = contentUri?.let { Uri.parse(it) } ?: return null
+        val projection = arrayOf(
+            MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.RELATIVE_PATH,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DATE_MODIFIED
+        )
+        contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) {
+                return null
+            }
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+            val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.RELATIVE_PATH)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_MODIFIED)
+            return VideoMeta(
+                displayName = cursor.getString(nameCol) ?: "",
+                relativePath = cursor.getString(pathCol) ?: "",
+                sizeBytes = cursor.getLong(sizeCol),
+                modifiedSeconds = cursor.getLong(modifiedCol)
+            )
+        }
+        return null
+    }
+
+    private fun queryFolderInfo(item: DisplayItem): FolderMeta? {
+        val projection = arrayOf(
+            MediaStore.Video.Media.RELATIVE_PATH,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DATE_MODIFIED
+        )
+        val (selection, selectionArgs) = when (item.type) {
+            DisplayItem.Type.FOLDER -> {
+                val bucketId = item.bucketId ?: return null
+                "${MediaStore.Video.Media.BUCKET_ID}=?" to arrayOf(bucketId)
+            }
+            DisplayItem.Type.HIERARCHY -> {
+                val path = item.bucketId ?: ""
+                if (path.isEmpty()) {
+                    null to null
+                } else {
+                    "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?" to arrayOf("$path%")
+                }
+            }
+            else -> return null
+        }
+        var relativePath: String? = null
+        var sizeTotal = 0L
+        var latestModified = 0L
+        contentResolver.query(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            selectionArgs,
+            null
+        )?.use { cursor ->
+            val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.RELATIVE_PATH)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_MODIFIED)
+            while (cursor.moveToNext()) {
+                if (relativePath == null) {
+                    relativePath = cursor.getString(pathCol)
+                }
+                sizeTotal += cursor.getLong(sizeCol)
+                val modified = cursor.getLong(modifiedCol)
+                if (modified > latestModified) {
+                    latestModified = modified
+                }
+            }
+        }
+        if (relativePath == null && item.type == DisplayItem.Type.HIERARCHY) {
+            relativePath = item.bucketId
+        }
+        return FolderMeta(relativePath, sizeTotal, latestModified)
+    }
+
+    private fun hasSubtitle(relativePath: String?, displayName: String?): Boolean {
+        if (relativePath.isNullOrEmpty() || displayName.isNullOrEmpty()) {
+            return false
+        }
+        val base = displayName.substringBeforeLast('.', displayName)
+        if (base.isEmpty()) {
+            return false
+        }
+        val targets = setOf("srt", "vtt", "ass", "ssa", "sub")
+        val targetNames = targets.map { "$base.$it".lowercase(Locale.US) }.toSet()
+        val projection = arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+        val selectionArgs = arrayOf(relativePath)
+        contentResolver.query(
+            MediaStore.Files.getContentUri("external"),
+            projection,
+            selection,
+            selectionArgs,
+            null
+        )?.use { cursor ->
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameCol) ?: continue
+                if (targetNames.contains(name.lowercase(Locale.US))) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun formatModifiedDate(modifiedSeconds: Long): String {
+        val formatter = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+        return formatter.format(Date(modifiedSeconds * 1000))
+    }
+
+    private data class ItemProperties(
+        val title: String,
+        val typeLabel: String,
+        val fullName: String,
+        val location: String,
+        val size: String,
+        val modified: String,
+        val subtitle: String
+    )
+
+    private data class VideoMeta(
+        val displayName: String,
+        val relativePath: String,
+        val sizeBytes: Long,
+        val modifiedSeconds: Long
+    )
+
+    private data class FolderMeta(
+        val relativePath: String?,
+        val sizeBytes: Long,
+        val modifiedSeconds: Long
+    )
 
     private fun setMode(mode: VideoMode) {
         currentMode = mode
