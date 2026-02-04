@@ -1,0 +1,492 @@
+package com.nshell.nsplayer
+
+import android.content.Context
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.media.AudioManager
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.widget.ImageButton
+import android.widget.SeekBar
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import java.io.IOException
+import java.util.Locale
+
+class PlayerActivity : AppCompatActivity() {
+    private lateinit var playerView: PlayerView
+    private var player: ExoPlayer? = null
+    private lateinit var overlayContainer: View
+    private lateinit var playPauseButton: ImageButton
+    private lateinit var rotateButton: ImageButton
+    private lateinit var seekBar: SeekBar
+    private lateinit var positionText: TextView
+    private lateinit var durationText: TextView
+    private lateinit var titleText: TextView
+    private lateinit var gestureText: TextView
+
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val progressUpdater = object : Runnable {
+        override fun run() {
+            if (player != null && !isScrubbing) {
+                updateProgress(player?.currentPosition ?: 0, player?.duration ?: C.TIME_UNSET)
+            }
+            uiHandler.postDelayed(this, UI_UPDATE_INTERVAL_MS)
+        }
+    }
+    private val hideOverlayRunnable = Runnable { overlayContainer.visibility = View.GONE }
+    private val hideGestureTextRunnable = Runnable { gestureText.visibility = View.GONE }
+
+    private var isScrubbing = false
+    private lateinit var gestureDetector: GestureDetector
+    private var swipeThresholdPx = 0f
+    private var isAdjusting = false
+    private var startX = 0f
+    private var startY = 0f
+    private var adjustLeftSide = false
+    private var startBrightness = -1f
+    private var startVolume = 0
+    private var maxVolume = 0
+    private var audioManager: AudioManager? = null
+    private lateinit var videoUri: Uri
+    private var userOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_player)
+
+        supportActionBar?.hide()
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        hideSystemUi()
+
+        playerView = findViewById(R.id.playerView)
+        overlayContainer = findViewById(R.id.overlayContainer)
+        playPauseButton = findViewById(R.id.playPauseButton)
+        rotateButton = findViewById(R.id.rotateButton)
+        seekBar = findViewById(R.id.seekBar)
+        positionText = findViewById(R.id.positionText)
+        durationText = findViewById(R.id.durationText)
+        titleText = findViewById(R.id.titleText)
+        gestureText = findViewById(R.id.gestureText)
+
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager?
+        if (audioManager != null) {
+            maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 0
+        }
+
+        swipeThresholdPx = resources.displayMetrics.density * 8f
+        gestureDetector = GestureDetector(this, GestureListener())
+
+        playPauseButton.setOnClickListener { togglePlayback() }
+        rotateButton.setOnClickListener { toggleOrientation() }
+
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    positionText.text = formatTime(progress.toLong())
+                }
+            }
+
+            override fun onStartTrackingTouch(bar: SeekBar) {
+                isScrubbing = true
+                uiHandler.removeCallbacks(progressUpdater)
+            }
+
+            override fun onStopTrackingTouch(bar: SeekBar) {
+                isScrubbing = false
+                player?.seekTo(bar.progress.toLong())
+                uiHandler.post(progressUpdater)
+                scheduleOverlayHide()
+            }
+        })
+
+        val root = findViewById<View>(R.id.playerRoot)
+        val touchListener = View.OnTouchListener { v, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                showOverlay()
+            }
+            if (isTouchOnControls(event)) {
+                return@OnTouchListener false
+            }
+            val handled = gestureDetector.onTouchEvent(event)
+            handleVerticalSwipe(event, v.width, v.height)
+            handled || isAdjusting
+        }
+        root.setOnTouchListener(touchListener)
+        playerView.setOnTouchListener(touchListener)
+        overlayContainer.setOnTouchListener(touchListener)
+
+        if (savedInstanceState != null) {
+            userOrientation = savedInstanceState.getInt(
+                STATE_USER_ORIENTATION,
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            )
+        }
+
+        val uriText = intent.getStringExtra(EXTRA_URI)
+        if (uriText == null) {
+            finish()
+            return
+        }
+        videoUri = Uri.parse(uriText)
+        val title = intent.getStringExtra(EXTRA_TITLE)
+        if (title != null) {
+            titleText.text = title
+        }
+        if (userOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+            requestedOrientation = userOrientation
+        } else {
+            applyAutoOrientation(videoUri)
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        initializePlayer()
+        uiHandler.post(progressUpdater)
+        scheduleOverlayHide()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        uiHandler.removeCallbacks(progressUpdater)
+        uiHandler.removeCallbacks(hideOverlayRunnable)
+        uiHandler.removeCallbacks(hideGestureTextRunnable)
+        releasePlayer()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(STATE_USER_ORIENTATION, userOrientation)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            hideSystemUi()
+        }
+    }
+
+    private fun initializePlayer() {
+        if (player != null) {
+            return
+        }
+        player = ExoPlayer.Builder(this).build()
+        playerView.player = player
+        player?.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updatePlayPauseIcon(isPlaying)
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) {
+                    updateProgress(player?.currentPosition ?: 0, player?.duration ?: C.TIME_UNSET)
+                }
+            }
+        })
+
+        player?.setMediaItem(MediaItem.fromUri(videoUri))
+        player?.prepare()
+        player?.play()
+        updatePlayPauseIcon(true)
+    }
+
+    private fun releasePlayer() {
+        player?.release()
+        player = null
+    }
+
+    private fun togglePlayback() {
+        val activePlayer = player ?: return
+        if (activePlayer.isPlaying) {
+            activePlayer.pause()
+            updatePlayPauseIcon(false)
+        } else {
+            activePlayer.play()
+            updatePlayPauseIcon(true)
+        }
+        scheduleOverlayHide()
+    }
+
+    private fun updatePlayPauseIcon(isPlaying: Boolean) {
+        val icon = if (isPlaying) {
+            android.R.drawable.ic_media_pause
+        } else {
+            android.R.drawable.ic_media_play
+        }
+        playPauseButton.setImageResource(icon)
+    }
+
+    private fun updateProgress(positionMs: Long, durationMs: Long) {
+        if (durationMs == C.TIME_UNSET || durationMs <= 0) {
+            seekBar.isEnabled = false
+            durationText.text = "--:--"
+            positionText.text = formatTime(positionMs)
+            return
+        }
+        seekBar.isEnabled = true
+        val safeDuration = durationMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        seekBar.max = safeDuration
+        seekBar.progress = positionMs.coerceAtMost(safeDuration.toLong()).toInt()
+        positionText.text = formatTime(positionMs)
+        durationText.text = formatTime(durationMs)
+    }
+
+    private fun seekBy(deltaMs: Long) {
+        val activePlayer = player ?: return
+        val duration = activePlayer.duration
+        var target = activePlayer.currentPosition + deltaMs
+        target = if (duration != C.TIME_UNSET && duration > 0) {
+            target.coerceIn(0, duration)
+        } else {
+            target.coerceAtLeast(0)
+        }
+        activePlayer.seekTo(target)
+        showGestureText(if (deltaMs > 0) "+10s" else "-10s")
+        scheduleOverlayHide()
+    }
+
+    private fun toggleOverlay() {
+        if (overlayContainer.visibility == View.VISIBLE) {
+            overlayContainer.visibility = View.GONE
+            uiHandler.removeCallbacks(hideOverlayRunnable)
+        } else {
+            showOverlay()
+        }
+    }
+
+    private fun showOverlay() {
+        overlayContainer.visibility = View.VISIBLE
+        scheduleOverlayHide()
+    }
+
+    private fun scheduleOverlayHide() {
+        overlayContainer.visibility = View.VISIBLE
+        uiHandler.removeCallbacks(hideOverlayRunnable)
+        uiHandler.postDelayed(hideOverlayRunnable, OVERLAY_AUTO_HIDE_MS)
+    }
+
+    private fun showGestureText(text: String) {
+        gestureText.text = text
+        gestureText.visibility = View.VISIBLE
+        uiHandler.removeCallbacks(hideGestureTextRunnable)
+        uiHandler.postDelayed(hideGestureTextRunnable, GESTURE_TEXT_HIDE_MS)
+    }
+
+    private fun isTouchOnControls(event: MotionEvent): Boolean {
+        return isPointInsideView(event, playPauseButton) ||
+            isPointInsideView(event, rotateButton) ||
+            isPointInsideView(event, seekBar) ||
+            isPointInsideView(event, overlayContainer.findViewById(R.id.bottomBar))
+    }
+
+    private fun isPointInsideView(event: MotionEvent, view: View?): Boolean {
+        if (view == null || view.visibility != View.VISIBLE) {
+            return false
+        }
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        val x = event.rawX
+        val y = event.rawY
+        return x >= location[0] &&
+            x <= location[0] + view.width &&
+            y >= location[1] &&
+            y <= location[1] + view.height
+    }
+
+    private fun handleVerticalSwipe(event: MotionEvent, width: Int, height: Int) {
+        if (height <= 0) {
+            return
+        }
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                startX = event.x
+                startY = event.y
+                adjustLeftSide = startX < width / 2f
+                isAdjusting = false
+                startBrightness = getCurrentBrightness()
+                startVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dy = event.y - startY
+                val dx = event.x - startX
+                if (!isAdjusting) {
+                    if (kotlin.math.abs(dy) > swipeThresholdPx && kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
+                        isAdjusting = true
+                    } else {
+                        return
+                    }
+                }
+                val delta = -dy / height
+                if (adjustLeftSide) {
+                    val target = clamp(startBrightness + delta, 0.02f, 1f)
+                    setWindowBrightness(target)
+                    val percent = kotlin.math.round(target * 100f).toInt()
+                    showGestureText("Brightness $percent%")
+                } else {
+                    val manager = audioManager
+                    if (manager != null && maxVolume > 0) {
+                        val target = clampVolume(startVolume + kotlin.math.round(delta * maxVolume).toInt())
+                        manager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                        val percent = kotlin.math.round(target / maxVolume.toFloat() * 100f).toInt()
+                        showGestureText("Volume $percent%")
+                    }
+                }
+            }
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> {
+                isAdjusting = false
+                scheduleOverlayHide()
+            }
+        }
+    }
+
+    private fun getCurrentBrightness(): Float {
+        val current = window.attributes.screenBrightness
+        if (current >= 0f) {
+            return current
+        }
+        return try {
+            val system = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+            clamp(system / 255f, 0.02f, 1f)
+        } catch (_: Settings.SettingNotFoundException) {
+            0.5f
+        }
+    }
+
+    private fun setWindowBrightness(value: Float) {
+        val params = window.attributes
+        params.screenBrightness = value
+        window.attributes = params
+    }
+
+    private fun clampVolume(target: Int): Int {
+        return when {
+            target < 0 -> 0
+            target > maxVolume -> maxVolume
+            else -> target
+        }
+    }
+
+    private fun clamp(value: Float, min: Float, max: Float): Float {
+        return kotlin.math.max(min, kotlin.math.min(value, max))
+    }
+
+    private fun formatTime(ms: Long): String {
+        val totalSeconds = kotlin.math.max(0, ms / 1000)
+        val seconds = totalSeconds % 60
+        val minutes = (totalSeconds / 60) % 60
+        val hours = totalSeconds / 3600
+        return if (hours > 0) {
+            String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.US, "%02d:%02d", minutes, seconds)
+        }
+    }
+
+    private fun hideSystemUi() {
+        val controller = ViewCompat.getWindowInsetsController(window.decorView)
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        controller?.setSystemBarsBehavior(
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        )
+    }
+
+    private fun applyAutoOrientation(uri: Uri) {
+        if (userOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+            return
+        }
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(this, uri)
+            val widthValue = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+            val heightValue = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+            if (widthValue == null || heightValue == null) {
+                return
+            }
+            val width = widthValue.toInt()
+            val height = heightValue.toInt()
+            if (width > height) {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        } catch (_: RuntimeException) {
+            // Ignore invalid metadata.
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: IOException) {
+                // Ignore release failures.
+            } catch (_: RuntimeException) {
+                // Ignore release failures.
+            }
+        }
+    }
+
+    private fun toggleOrientation() {
+        val current = resources.configuration.orientation
+        userOrientation = if (current == Configuration.ORIENTATION_LANDSCAPE) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+        requestedOrientation = userOrientation
+        showOverlay()
+    }
+
+    private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            showOverlay()
+            return true
+        }
+
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            val activePlayer = player ?: return false
+            val x = e.x
+            val width = playerView.width
+            if (width <= 0) {
+                return false
+            }
+            val third = width / 3f
+            if (x < third) {
+                seekBy(-SEEK_JUMP_MS)
+            } else if (x < third * 2f) {
+                togglePlayback()
+                showGestureText(if (activePlayer.isPlaying) "Play" else "Pause")
+            } else {
+                seekBy(SEEK_JUMP_MS)
+            }
+            showOverlay()
+            return true
+        }
+    }
+
+    companion object {
+        const val EXTRA_URI = "extra_uri"
+        const val EXTRA_TITLE = "extra_title"
+        private const val STATE_USER_ORIENTATION = "state_user_orientation"
+        private const val SEEK_JUMP_MS = 10_000L
+        private const val UI_UPDATE_INTERVAL_MS = 500L
+        private const val OVERLAY_AUTO_HIDE_MS = 2500L
+        private const val GESTURE_TEXT_HIDE_MS = 1000L
+    }
+}
