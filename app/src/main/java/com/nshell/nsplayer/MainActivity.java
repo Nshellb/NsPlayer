@@ -89,6 +89,10 @@ public class MainActivity extends AppCompatActivity {
         selectionCopyButton = findViewById(R.id.selectionCopyButton);
 
         list = findViewById(R.id.list);
+        list.setVerticalScrollBarEnabled(true);
+        list.setScrollbarFadingEnabled(true);
+        list.setScrollBarDefaultDelayBeforeFade(600);
+        list.setScrollBarFadeDuration(350);
         list.setLayoutManager(new LinearLayoutManager(this));
         adapter = new VideoListAdapter();
         adapter.setOnItemClickListener(this::onItemSelected);
