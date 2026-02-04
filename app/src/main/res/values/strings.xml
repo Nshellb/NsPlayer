@@ -1,0 +1,44 @@
+﻿<resources>
+    <string name="app_name">NsPlayer</string>
+    <string name="mode_folders">모든 폴더</string>
+    <string name="mode_hierarchy">계층 폴더</string>
+    <string name="mode_videos">파일</string>
+    <string name="status_loading">불러오는 중...</string>
+    <string name="empty_state">표시할 항목이 없습니다.</string>
+    <string name="permission_needed">동영상 목록을 표시하려면 권한이 필요합니다.</string>
+    <string name="permission_denied">권한이 거부되었습니다. 설정에서 권한을 허용해 주세요.</string>
+    <string name="mode_list">목록</string>
+    <string name="mode_tile">타일</string>
+    <string name="back">뒤로</string>
+    <string name="folder_videos_title">%1$s</string>
+    <string name="browse_mode_button">보기 모드 선택</string>
+    <string name="settings_title">설정</string>
+    <string name="settings_mode_title">보기 모드</string>
+    <string name="display_title">배치 형태</string>
+    <string name="confirm">확인</string>
+    <string name="cancel">취소</string>
+    <string name="more_options">더보기</string>
+    <string name="action_rename">이름 변경</string>
+    <string name="action_properties">속성</string>
+    <string name="action_not_ready">준비중</string>
+    <string name="sort_title">정렬</string>
+    <string name="sort_title_item">제목</string>
+    <string name="sort_modified">수정된 날짜</string>
+    <string name="sort_duration">길이</string>
+    <string name="sort_asc">오름차순</string>
+    <string name="sort_desc">내림차순</string>
+    <string name="sort_title_asc">A-Z</string>
+    <string name="sort_title_desc">Z-A</string>
+    <string name="sort_modified_asc">오래된순</string>
+    <string name="sort_modified_desc">최신순</string>
+    <string name="sort_length_asc">짧은 순</string>
+    <string name="sort_length_desc">긴 순</string>
+    <string name="select_all">전체선택</string>
+    <string name="move">이동</string>
+    <string name="copy">복사</string>
+</resources>
+
+
+
+
+
