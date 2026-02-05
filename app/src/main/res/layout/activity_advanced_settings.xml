@@ -32,6 +32,63 @@
             android:background="?android:attr/textColorSecondary"
             android:alpha="0.12" />
 
+        <TextView
+            android:id="@+id/advancedThemeTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/advanced_settings_theme"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
+
+        <RadioGroup
+            android:id="@+id/advancedThemeGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:checkedButton="@+id/advancedThemeDevice">
+
+            <RadioButton
+                android:id="@+id/advancedThemeDevice"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="12dp"
+                android:buttonTint="@color/advanced_theme_choice"
+                android:textColor="@color/advanced_theme_choice"
+                android:textAlignment="center"
+                android:text="@string/advanced_theme_device" />
+
+            <RadioButton
+                android:id="@+id/advancedThemeLight"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="12dp"
+                android:buttonTint="@color/advanced_theme_choice"
+                android:textColor="@color/advanced_theme_choice"
+                android:textAlignment="center"
+                android:text="@string/advanced_theme_light" />
+
+            <RadioButton
+                android:id="@+id/advancedThemeDark"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:buttonTint="@color/advanced_theme_choice"
+                android:textColor="@color/advanced_theme_choice"
+                android:textAlignment="center"
+                android:text="@string/advanced_theme_dark" />
+        </RadioGroup>
+
+        <View
+            android:id="@+id/advancedDividerTheme"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
+            android:background="?android:attr/textColorSecondary"
+            android:alpha="0.12" />
+
         <include
             android:id="@+id/advancedSearchFoldersRow"
             layout="@layout/include_settings_row_chevron" />

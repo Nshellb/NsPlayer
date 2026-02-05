@@ -12,6 +12,7 @@ data class SettingsState(
     val sortMode: VideoSortMode = VideoSortMode.MODIFIED,
     val sortOrder: VideoSortOrder = VideoSortOrder.DESC,
     val languageTag: String? = null,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val nomediaEnabled: Boolean = false,
     val visibleItems: Set<VisibleItem> = setOf(
         VisibleItem.THUMBNAIL,

@@ -49,6 +49,10 @@
     <string name="sort_length_desc">긴 순</string>
     <string name="advanced_settings_title">고급설정</string>
     <string name="advanced_settings_language">언어</string>
+    <string name="advanced_settings_theme">테마</string>
+    <string name="advanced_theme_device">기기 설정</string>
+    <string name="advanced_theme_light">라이트 모드</string>
+    <string name="advanced_theme_dark">다크 모드</string>
     <string name="advanced_settings_search_folders">검색할 폴더</string>
     <string name="advanced_settings_visible_items">보여질 항목</string>
     <string name="advanced_settings_nomedia">.nomedia 인식</string>

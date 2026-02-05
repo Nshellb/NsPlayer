@@ -6,6 +6,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.nshell.nsplayer.data.settings.SettingsRepository
 import com.nshell.nsplayer.data.settings.SettingsState
+import com.nshell.nsplayer.data.settings.ThemeMode
 import com.nshell.nsplayer.data.settings.VisibleItem
 import com.nshell.nsplayer.ui.main.VideoDisplayMode
 import com.nshell.nsplayer.ui.main.VideoMode
@@ -49,6 +50,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateLanguageTag(languageTag: String?) {
         repository.updateLanguageTag(languageTag)
+        refresh()
+    }
+
+    fun updateThemeMode(themeMode: ThemeMode) {
+        repository.updateThemeMode(themeMode)
         refresh()
     }
 

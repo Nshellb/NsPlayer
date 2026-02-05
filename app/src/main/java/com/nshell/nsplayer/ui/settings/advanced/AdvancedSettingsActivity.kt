@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.CheckBox
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -11,6 +12,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import com.nshell.nsplayer.R
+import com.nshell.nsplayer.NsPlayerApp
+import com.nshell.nsplayer.data.settings.ThemeMode
 import com.nshell.nsplayer.data.settings.VisibleItem
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import com.nshell.nsplayer.ui.settings.searchfolders.SearchFoldersActivity
@@ -38,6 +41,20 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         }
 
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
+
+        val themeGroup = findViewById<RadioGroup>(R.id.advancedThemeGroup)
+        themeGroup.setOnCheckedChangeListener { _, checkedId ->
+            if (updating) {
+                return@setOnCheckedChangeListener
+            }
+            val mode = when (checkedId) {
+                R.id.advancedThemeLight -> ThemeMode.LIGHT
+                R.id.advancedThemeDark -> ThemeMode.DARK
+                else -> ThemeMode.SYSTEM
+            }
+            settingsViewModel.updateThemeMode(mode)
+            NsPlayerApp.applyTheme(mode)
+        }
 
         val toastMessage = getString(R.string.action_not_ready_long)
         val noMediaRow = findViewById<View>(R.id.advancedNoMediaRow)
@@ -90,6 +107,14 @@ class AdvancedSettingsActivity : AppCompatActivity() {
 
         settingsViewModel.getSettings().observe(this) { settings ->
             updating = true
+            val targetId = when (settings.themeMode) {
+                ThemeMode.LIGHT -> R.id.advancedThemeLight
+                ThemeMode.DARK -> R.id.advancedThemeDark
+                ThemeMode.SYSTEM -> R.id.advancedThemeDevice
+            }
+            if (themeGroup.checkedRadioButtonId != targetId) {
+                themeGroup.check(targetId)
+            }
             noMediaCheckBox.isChecked = settings.nomediaEnabled
             visibleItemIds.forEach { id ->
                 val item = visibleItemMap[id] ?: return@forEach

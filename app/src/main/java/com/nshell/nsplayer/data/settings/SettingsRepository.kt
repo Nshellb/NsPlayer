@@ -18,6 +18,7 @@ class SettingsRepository(context: Context) {
         val sortValue = preferences.getString(KEY_SORT, VideoSortMode.MODIFIED.name)
         val sortOrderValue = preferences.getString(KEY_SORT_ORDER, VideoSortOrder.DESC.name)
         val languageTag = preferences.getString(KEY_LANGUAGE, null)
+        val themeValue = preferences.getString(KEY_THEME, ThemeMode.SYSTEM.name)
         val nomediaEnabled = preferences.getBoolean(KEY_NOMEDIA, false)
         val visibleItems = preferences.getStringSet(KEY_VISIBLE_ITEMS, null)
             ?.mapNotNull { runCatching { VisibleItem.valueOf(it) }.getOrNull() }
@@ -40,6 +41,9 @@ class SettingsRepository(context: Context) {
         val sortOrder = runCatching {
             VideoSortOrder.valueOf(sortOrderValue ?: VideoSortOrder.DESC.name)
         }.getOrElse { VideoSortOrder.DESC }
+        val themeMode = runCatching {
+            ThemeMode.valueOf(themeValue ?: ThemeMode.SYSTEM.name)
+        }.getOrElse { ThemeMode.SYSTEM }
 
         return SettingsState(
             mode = mode,
@@ -48,6 +52,7 @@ class SettingsRepository(context: Context) {
             sortMode = sortMode,
             sortOrder = sortOrder,
             languageTag = languageTag,
+            themeMode = themeMode,
             nomediaEnabled = nomediaEnabled,
             visibleItems = visibleItems
         )
@@ -77,6 +82,10 @@ class SettingsRepository(context: Context) {
         preferences.edit().putString(KEY_LANGUAGE, languageTag).apply()
     }
 
+    fun updateThemeMode(themeMode: ThemeMode) {
+        preferences.edit().putString(KEY_THEME, themeMode.name).apply()
+    }
+
     fun updateNomediaEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_NOMEDIA, enabled).apply()
     }
@@ -94,6 +103,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_SORT = "video_sort"
         private const val KEY_SORT_ORDER = "video_sort_order"
         private const val KEY_LANGUAGE = "language_tag"
+        private const val KEY_THEME = "theme_mode"
         private const val KEY_NOMEDIA = "nomedia_enabled"
         private const val KEY_VISIBLE_ITEMS = "visible_items"
     }
