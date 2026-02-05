@@ -71,10 +71,13 @@
     <string name="copy_failed">복사에 실패했습니다.</string>
     <string name="copy_progress_title">복사 진행 중</string>
     <string name="copy_progress_count">%1$d/%2$d (성공 %3$d, 실패 %4$d, 건너뜀 %5$d)</string>
+    <string name="copy_progress_count_placeholder">0/0 (성공 0, 실패 0, 건너뜀 0)</string>
     <string name="copy_progress_size">%1$s / %2$s</string>
+    <string name="copy_progress_size_placeholder">0 B / 0 B</string>
     <string name="copy_progress_file">파일: %1$s</string>
     <string name="copy_progress_file_placeholder">파일: -</string>
     <string name="copy_progress_percent">진행률: %1$d%%</string>
+    <string name="copy_progress_percent_placeholder">진행률: 0%</string>
     <string name="copy_cancel">취소</string>
     <string name="copy_cancelling">취소 중...</string>
     <string name="copy_cancelled">복사가 취소되었습니다.</string>

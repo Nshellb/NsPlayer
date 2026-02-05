@@ -22,7 +22,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="@string/copy_progress_count"
+        android:text="@string/copy_progress_count_placeholder"
         android:textSize="14sp"
         android:textColor="@android:color/darker_gray" />
 
@@ -31,7 +31,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="@string/copy_progress_size"
+        android:text="@string/copy_progress_size_placeholder"
         android:textSize="13sp"
         android:textColor="@android:color/darker_gray" />
 
@@ -40,7 +40,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="@string/copy_progress_percent"
+        android:text="@string/copy_progress_percent_placeholder"
         android:textSize="13sp"
         android:textColor="@android:color/darker_gray" />
 
