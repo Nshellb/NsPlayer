@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var transferController: TransferController
     private lateinit var list: RecyclerView
     private var browserState = VideoBrowserState()
+    private var initialSettingsApplied = false
 
     private val copyDestinationLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -201,28 +202,28 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateHeaderState()
-        loadIfPermitted()
     }
 
     private fun loadIfPermitted() {
+        val current = viewModel.getState().value ?: browserState
         if (hasVideoPermission()) {
             when {
-                browserState.currentMode == VideoMode.HIERARCHY -> viewModel.loadHierarchy(
-                    browserState.hierarchyPath,
-                    browserState.sortMode,
-                    browserState.sortOrder,
+                current.currentMode == VideoMode.HIERARCHY -> viewModel.loadHierarchy(
+                    current.hierarchyPath,
+                    current.sortMode,
+                    current.sortOrder,
                     contentResolver
                 )
-                browserState.inFolderVideos && browserState.selectedBucketId != null -> viewModel.loadFolderVideos(
-                    browserState.selectedBucketId!!,
-                    browserState.sortMode,
-                    browserState.sortOrder,
+                current.inFolderVideos && current.selectedBucketId != null -> viewModel.loadFolderVideos(
+                    current.selectedBucketId!!,
+                    current.sortMode,
+                    current.sortOrder,
                     contentResolver
                 )
                 else -> viewModel.load(
-                    browserState.currentMode,
-                    browserState.sortMode,
-                    browserState.sortOrder,
+                    current.currentMode,
+                    current.sortMode,
+                    current.sortOrder,
                     contentResolver
                 )
             }
@@ -919,6 +920,33 @@ class MainActivity : AppCompatActivity() {
                 sortMode = settings.sortMode,
                 sortOrder = settings.sortOrder
             )
+        }
+        if (!initialSettingsApplied) {
+            initialSettingsApplied = true
+            loadWithSettings(settings)
+        }
+    }
+
+    private fun loadWithSettings(settings: SettingsState) {
+        if (hasVideoPermission()) {
+            when (settings.mode) {
+                VideoMode.HIERARCHY -> viewModel.loadHierarchy(
+                    "",
+                    settings.sortMode,
+                    settings.sortOrder,
+                    contentResolver
+                )
+                else -> viewModel.load(
+                    settings.mode,
+                    settings.sortMode,
+                    settings.sortOrder,
+                    contentResolver
+                )
+            }
+        } else {
+            statusText.text = getString(R.string.permission_needed)
+            statusText.visibility = View.VISIBLE
+            requestVideoPermission()
         }
     }
 

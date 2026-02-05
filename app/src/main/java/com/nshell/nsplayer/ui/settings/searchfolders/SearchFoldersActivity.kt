@@ -21,15 +21,18 @@ class SearchFoldersActivity : AppCompatActivity() {
         titleText.text = getString(R.string.search_folders_title)
 
         val topBar = findViewById<View>(R.id.commonTopBar)
-        ViewCompat.setOnApplyWindowInsetsListener(topBar) { view, insets ->
-            val topInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
-            view.setPadding(
-                view.paddingLeft,
-                topInset + dpToPx(12),
-                view.paddingRight,
-                view.paddingBottom
-            )
-            insets
+            ?: findViewById(R.id.searchFoldersTopBarInclude)
+        if (topBar != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(topBar) { view, insets ->
+                val topInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
+                view.setPadding(
+                    view.paddingLeft,
+                    topInset + dpToPx(12),
+                    view.paddingRight,
+                    view.paddingBottom
+                )
+                insets
+            }
         }
     }
 
