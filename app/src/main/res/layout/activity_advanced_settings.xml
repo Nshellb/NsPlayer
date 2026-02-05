@@ -5,34 +5,9 @@
     android:background="@android:color/white"
     android:orientation="vertical">
 
-    <LinearLayout
-        android:id="@+id/topBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/brand_green"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="12dp">
-
-        <ImageButton
-            android:id="@+id/advancedBackButton"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/back"
-            android:src="@drawable/ic_back"
-            android:tint="@color/white" />
-
-        <TextView
-            android:id="@+id/advancedTitleText"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:paddingStart="12dp"
-            android:text="@string/advanced_settings_title"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
-            android:textColor="@color/white" />
-    </LinearLayout>
+    <include
+        android:id="@+id/advancedTopBarInclude"
+        layout="@layout/include_top_bar" />
 
     <LinearLayout
         android:id="@+id/advancedSettingsContainer"
@@ -56,33 +31,9 @@
             android:layout_marginBottom="12dp"
             android:background="#E0E0E0" />
 
-        <LinearLayout
+        <include
             android:id="@+id/advancedSearchFoldersRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackground"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:paddingStart="0dp"
-            android:paddingEnd="6dp"
-            android:paddingVertical="6dp">
-
-            <TextView
-                android:id="@+id/advancedSearchFoldersTitle"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/advanced_settings_search_folders"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
-
-            <TextView
-                android:id="@+id/advancedSearchFoldersChevron"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=">"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
-        </LinearLayout>
+            layout="@layout/include_settings_row_chevron" />
 
         <View
             android:id="@+id/advancedDividerSearchFolders"
@@ -99,91 +50,8 @@
             android:text="@string/advanced_settings_visible_items"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
 
-        <LinearLayout
-            android:id="@+id/advancedVisibleItemsList"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/visibleItemThumbnail"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/advanced_visible_thumbnail" />
-
-                <CheckBox
-                    android:id="@+id/visibleItemDuration"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/advanced_visible_duration" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/visibleItemExtension"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/advanced_visible_extension" />
-
-                <CheckBox
-                    android:id="@+id/visibleItemResolution"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/advanced_visible_resolution" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/visibleItemFrameRate"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/advanced_visible_frame_rate" />
-
-                <CheckBox
-                    android:id="@+id/visibleItemSize"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/advanced_visible_size" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/visibleItemModified"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/advanced_visible_modified" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-            </LinearLayout>
-        </LinearLayout>
+        <include
+            layout="@layout/include_visible_items_grid" />
 
         <View
             android:id="@+id/advancedDividerVisibleItems"
@@ -193,26 +61,8 @@
             android:layout_marginBottom="12dp"
             android:background="#E0E0E0" />
 
-        <LinearLayout
+        <include
             android:id="@+id/advancedNoMediaRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="6dp"
-            android:paddingVertical="6dp">
-
-            <TextView
-                android:id="@+id/advancedNoMediaTitle"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/advanced_settings_nomedia"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
-
-            <CheckBox
-                android:id="@+id/advancedNoMediaCheckBox"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
+            layout="@layout/include_settings_row_checkbox" />
     </LinearLayout>
 </LinearLayout>

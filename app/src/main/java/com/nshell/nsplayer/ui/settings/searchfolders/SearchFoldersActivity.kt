@@ -2,6 +2,7 @@ package com.nshell.nsplayer.ui.settings.searchfolders
 
 import android.os.Bundle
 import android.view.View
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -13,10 +14,13 @@ class SearchFoldersActivity : AppCompatActivity() {
         setContentView(R.layout.activity_search_folders)
         supportActionBar?.hide()
 
-        val backButton = findViewById<View>(R.id.searchFoldersBackButton)
+        val backButton = findViewById<View>(R.id.commonBackButton)
         backButton.setOnClickListener { finish() }
 
-        val topBar = findViewById<View>(R.id.searchFoldersTopBar)
+        val titleText = findViewById<TextView>(R.id.commonTitleText)
+        titleText.text = getString(R.string.search_folders_title)
+
+        val topBar = findViewById<View>(R.id.commonTopBar)
         ViewCompat.setOnApplyWindowInsetsListener(topBar) { view, insets ->
             val topInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
             view.setPadding(

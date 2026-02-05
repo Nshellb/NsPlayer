@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.CheckBox
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -17,16 +18,24 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_advanced_settings)
         supportActionBar?.hide()
 
-        val backButton = findViewById<View>(R.id.advancedBackButton)
+        val backButton = findViewById<View>(R.id.commonBackButton)
         backButton.setOnClickListener { finish() }
 
+        val titleText = findViewById<TextView>(R.id.commonTitleText)
+        titleText.text = getString(R.string.advanced_settings_title)
+
         val searchFoldersRow = findViewById<View>(R.id.advancedSearchFoldersRow)
+        val searchTitle = searchFoldersRow.findViewById<TextView>(R.id.settingsRowTitle)
+        searchTitle.text = getString(R.string.advanced_settings_search_folders)
         searchFoldersRow.setOnClickListener {
             startActivity(Intent(this, SearchFoldersActivity::class.java))
         }
 
         val toastMessage = getString(R.string.action_not_ready_long)
-        val noMediaCheckBox = findViewById<CheckBox>(R.id.advancedNoMediaCheckBox)
+        val noMediaRow = findViewById<View>(R.id.advancedNoMediaRow)
+        val noMediaTitle = noMediaRow.findViewById<TextView>(R.id.settingsRowTitle)
+        noMediaTitle.text = getString(R.string.advanced_settings_nomedia)
+        val noMediaCheckBox = noMediaRow.findViewById<CheckBox>(R.id.settingsRowCheckBox)
         noMediaCheckBox.setOnCheckedChangeListener { _, _ ->
             Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
         }
@@ -46,7 +55,7 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             }
         }
 
-        val topBar = findViewById<View>(R.id.topBar)
+        val topBar = findViewById<View>(R.id.commonTopBar)
         ViewCompat.setOnApplyWindowInsetsListener(topBar) { view, insets ->
             val topInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
             view.setPadding(

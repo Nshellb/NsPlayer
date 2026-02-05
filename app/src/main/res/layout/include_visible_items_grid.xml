@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<GridLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/advancedVisibleItemsList"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:columnCount="2"
+    android:rowCount="4">
+
+    <CheckBox
+        android:id="@+id/visibleItemThumbnail"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_columnWeight="1"
+        android:text="@string/advanced_visible_thumbnail" />
+
+    <CheckBox
+        android:id="@+id/visibleItemDuration"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_columnWeight="1"
+        android:text="@string/advanced_visible_duration" />
+
+    <CheckBox
+        android:id="@+id/visibleItemExtension"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_columnWeight="1"
+        android:text="@string/advanced_visible_extension" />
+
+    <CheckBox
+        android:id="@+id/visibleItemResolution"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_columnWeight="1"
+        android:text="@string/advanced_visible_resolution" />
+
+    <CheckBox
+        android:id="@+id/visibleItemFrameRate"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_columnWeight="1"
+        android:text="@string/advanced_visible_frame_rate" />
+
+    <CheckBox
+        android:id="@+id/visibleItemSize"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_columnWeight="1"
+        android:text="@string/advanced_visible_size" />
+
+    <CheckBox
+        android:id="@+id/visibleItemModified"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_columnWeight="1"
+        android:text="@string/advanced_visible_modified" />
+</GridLayout>
