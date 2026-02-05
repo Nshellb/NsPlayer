@@ -12,12 +12,24 @@ import java.util.concurrent.Executors
 class VideoBrowserViewModel : ViewModel() {
     private val items = MutableLiveData<List<DisplayItem>>(emptyList())
     private val loading = MutableLiveData(false)
+    private val state = MutableLiveData(VideoBrowserState())
     private val repository: VideoRepository = MediaStoreVideoRepository()
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 
     fun getItems(): LiveData<List<DisplayItem>> = items
 
     fun getLoading(): LiveData<Boolean> = loading
+
+    fun getState(): LiveData<VideoBrowserState> = state
+
+    fun setState(newState: VideoBrowserState) {
+        state.value = newState
+    }
+
+    fun updateState(update: (VideoBrowserState) -> VideoBrowserState) {
+        val current = state.value ?: VideoBrowserState()
+        state.value = update(current)
+    }
 
     fun load(
         mode: VideoMode,

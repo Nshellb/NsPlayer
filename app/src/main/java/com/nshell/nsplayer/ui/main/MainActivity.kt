@@ -7,15 +7,14 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
 import android.provider.MediaStore
+import android.text.format.Formatter
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
@@ -28,8 +27,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import androidx.documentfile.provider.DocumentFile
-import android.widget.ProgressBar
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.ui.player.PlayerActivity
@@ -37,10 +34,6 @@ import com.nshell.nsplayer.ui.settings.advanced.AdvancedSettingsActivity
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
-import android.text.format.Formatter
-import java.util.concurrent.atomic.AtomicBoolean
-import android.util.Log
-import java.util.concurrent.CountDownLatch
 
 class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
@@ -56,41 +49,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var selectionDeleteButton: Button
     private lateinit var adapter: VideoListAdapter
     private lateinit var viewModel: VideoBrowserViewModel
+    private lateinit var selectionController: SelectionController
+    private lateinit var transferController: TransferController
     private lateinit var list: RecyclerView
-    private var currentMode = VideoMode.FOLDERS
-    private var videoDisplayMode = VideoDisplayMode.LIST
-    private var tileSpanCount = 2
-    private var sortMode = VideoSortMode.MODIFIED
-    private var sortOrder = VideoSortOrder.DESC
-    private var inFolderVideos = false
-    private var selectedBucketId: String? = null
-    private var selectedBucketName: String? = null
-    private var hierarchyPath = ""
+    private var browserState = VideoBrowserState()
     private lateinit var preferences: SharedPreferences
-    private var pendingCopyItems: List<DisplayItem> = emptyList()
-    private var pendingOperation: TransferOperation = TransferOperation.COPY
-    private val deletePermissionLock = Any()
-    private var pendingDeleteLatch: CountDownLatch? = null
-    private var pendingDeleteGranted = false
 
     private val copyDestinationLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        if (uri == null) {
-            pendingCopyItems = emptyList()
-            return@registerForActivityResult
-        }
-        preferences.edit().putString(KEY_COPY_TREE_URI, uri.toString()).apply()
-        handleCopyToTree(uri, pendingCopyItems, pendingOperation)
+        transferController.onCopyDestinationPicked(uri)
     }
 
     private val deletePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        synchronized(deletePermissionLock) {
-            pendingDeleteGranted = result.resultCode == RESULT_OK
-            pendingDeleteLatch?.countDown()
-        }
+        transferController.onDeletePermissionResult(result.resultCode)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -117,42 +91,69 @@ class MainActivity : AppCompatActivity() {
         list.scrollBarFadeDuration = 350
         list.layoutManager = LinearLayoutManager(this)
         adapter = VideoListAdapter()
+        selectionController = SelectionController(selectionBar, selectionAllButton, adapter)
+        selectionController.bind()
         adapter.setOnItemClickListener { onItemSelected(it) }
         adapter.setOnItemOverflowClickListener { showItemBottomSheet(it) }
-        adapter.setOnSelectionChangedListener { selectedCount, selectionMode ->
-            onSelectionChanged(selectedCount, selectionMode)
+        adapter.setOnSelectionChangedListener { _, selectionMode ->
+            selectionController.onSelectionChanged(selectionMode)
         }
         list.adapter = adapter
 
-        selectionAllButton.setOnClickListener {
-            if (adapter.isAllSelected()) {
-                adapter.clearSelection()
-            } else {
-                adapter.selectAll()
+        preferences = getSharedPreferences(PREFS, MODE_PRIVATE)
+        viewModel = ViewModelProvider(this)[VideoBrowserViewModel::class.java]
+        viewModel.getItems().observe(this) { renderItems(it) }
+        viewModel.getLoading().observe(this) { renderLoading(it) }
+        viewModel.getState().observe(this) { state ->
+            val previous = browserState
+            browserState = state
+            val displayChanged = previous.videoDisplayMode != state.videoDisplayMode
+            val tileSpanChanged = previous.tileSpanCount != state.tileSpanCount
+            if (displayChanged || tileSpanChanged) {
+                applyVideoDisplayMode()
+            }
+            val headerChanged =
+                previous.currentMode != state.currentMode ||
+                    previous.inFolderVideos != state.inFolderVideos ||
+                    previous.hierarchyPath != state.hierarchyPath ||
+                    previous.selectedBucketName != state.selectedBucketName
+            if (headerChanged) {
+                updateHeaderState()
             }
         }
-        selectionMoveButton.setOnClickListener {
-            startMoveSelected()
-        }
-        selectionCopyButton.setOnClickListener {
-            startCopySelected()
-        }
-        selectionDeleteButton.setOnClickListener {
-            startDeleteSelected()
-        }
+        viewModel.setState(loadPreferences())
 
-        preferences = getSharedPreferences(PREFS, MODE_PRIVATE)
-        loadPreferences()
+        transferController = TransferController(
+            activity = this,
+            adapter = adapter,
+            preferences = preferences,
+            launchCopyDestination = { copyDestinationLauncher.launch(null) },
+            launchDeletePermission = { request -> deletePermissionLauncher.launch(request) },
+            onReloadRequested = { loadIfPermitted() }
+        )
+
+        selectionMoveButton.setOnClickListener { transferController.startMoveSelected() }
+        selectionCopyButton.setOnClickListener { transferController.startCopySelected() }
+        selectionDeleteButton.setOnClickListener { transferController.startDeleteSelected() }
+
+        transferController = TransferController(
+            activity = this,
+            adapter = adapter,
+            preferences = preferences,
+            launchCopyDestination = { copyDestinationLauncher.launch(null) },
+            launchDeletePermission = { request -> deletePermissionLauncher.launch(request) },
+            onReloadRequested = { loadIfPermitted() }
+        )
 
         val settingsButton = findViewById<View>(R.id.settingsButton)
         settingsButton.setOnClickListener { showSettingsDialog(it) }
 
         val backButton = findViewById<Button>(R.id.backButton)
         backButton.setOnClickListener {
-            if (currentMode == VideoMode.HIERARCHY) {
-                if (hierarchyPath.isNotEmpty()) {
-                    hierarchyPath = getParentPath(hierarchyPath)
-                    updateHeaderState()
+            if (browserState.currentMode == VideoMode.HIERARCHY) {
+                if (browserState.hierarchyPath.isNotEmpty()) {
+                    val nextPath = getParentPath(browserState.hierarchyPath)
+                    viewModel.updateState { it.copy(hierarchyPath = nextPath) }
                     loadIfPermitted()
                 }
                 return@setOnClickListener
@@ -161,34 +162,30 @@ class MainActivity : AppCompatActivity() {
         }
 
         headerBackButton.setOnClickListener {
-            if (currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
-                hierarchyPath = getParentPath(hierarchyPath)
-                updateHeaderState()
+            if (browserState.currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
+                val nextPath = getParentPath(browserState.hierarchyPath)
+                viewModel.updateState { it.copy(hierarchyPath = nextPath) }
                 loadIfPermitted()
                 return@setOnClickListener
             }
-            if (inFolderVideos) {
+            if (browserState.inFolderVideos) {
                 setMode(VideoMode.FOLDERS)
             }
         }
 
-        viewModel = ViewModelProvider(this)[VideoBrowserViewModel::class.java]
-        viewModel.getItems().observe(this) { renderItems(it) }
-        viewModel.getLoading().observe(this) { renderLoading(it) }
-
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (adapter.isSelectionMode()) {
-                    adapter.clearSelection()
+                if (selectionController.isSelectionMode()) {
+                    selectionController.clearSelection()
                     return
                 }
-                if (currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
-                    hierarchyPath = getParentPath(hierarchyPath)
-                    updateHeaderState()
+                if (browserState.currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
+                    val nextPath = getParentPath(browserState.hierarchyPath)
+                    viewModel.updateState { it.copy(hierarchyPath = nextPath) }
                     loadIfPermitted()
                     return
                 }
-                if (inFolderVideos) {
+                if (browserState.inFolderVideos) {
                     setMode(VideoMode.FOLDERS)
                     return
                 }
@@ -216,19 +213,24 @@ class MainActivity : AppCompatActivity() {
     private fun loadIfPermitted() {
         if (hasVideoPermission()) {
             when {
-                currentMode == VideoMode.HIERARCHY -> viewModel.loadHierarchy(
-                    hierarchyPath,
-                    sortMode,
-                    sortOrder,
+                browserState.currentMode == VideoMode.HIERARCHY -> viewModel.loadHierarchy(
+                    browserState.hierarchyPath,
+                    browserState.sortMode,
+                    browserState.sortOrder,
                     contentResolver
                 )
-                inFolderVideos && selectedBucketId != null -> viewModel.loadFolderVideos(
-                    selectedBucketId!!,
-                    sortMode,
-                    sortOrder,
+                browserState.inFolderVideos && browserState.selectedBucketId != null -> viewModel.loadFolderVideos(
+                    browserState.selectedBucketId!!,
+                    browserState.sortMode,
+                    browserState.sortOrder,
                     contentResolver
                 )
-                else -> viewModel.load(currentMode, sortMode, sortOrder, contentResolver)
+                else -> viewModel.load(
+                    browserState.currentMode,
+                    browserState.sortMode,
+                    browserState.sortOrder,
+                    contentResolver
+                )
             }
         } else {
             statusText.text = getString(R.string.permission_needed)
@@ -295,15 +297,24 @@ class MainActivity : AppCompatActivity() {
     private fun onItemSelected(item: DisplayItem) {
         when (item.type) {
             DisplayItem.Type.FOLDER -> {
-                selectedBucketId = item.bucketId
-                selectedBucketName = item.title
-                inFolderVideos = true
-                updateHeaderState()
+                viewModel.updateState {
+                    it.copy(
+                        selectedBucketId = item.bucketId,
+                        selectedBucketName = item.title,
+                        inFolderVideos = true
+                    )
+                }
                 loadIfPermitted()
             }
             DisplayItem.Type.HIERARCHY -> {
-                hierarchyPath = item.bucketId ?: ""
-                updateHeaderState()
+                viewModel.updateState {
+                    it.copy(
+                        hierarchyPath = item.bucketId ?: "",
+                        inFolderVideos = false,
+                        selectedBucketId = null,
+                        selectedBucketName = null
+                    )
+                }
                 loadIfPermitted()
             }
             DisplayItem.Type.VIDEO -> {
@@ -320,13 +331,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateHeaderState() {
-        if (inFolderVideos) {
+        if (browserState.inFolderVideos) {
             folderHeader.visibility = View.GONE
             headerBackButton.visibility = View.VISIBLE
-            val title = selectedBucketName ?: "Unknown"
+            val title = browserState.selectedBucketName ?: "Unknown"
             titleText.text = title
             applyVideoDisplayMode()
-        } else if (currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
+        } else if (browserState.currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
             folderHeader.visibility = View.GONE
             headerBackButton.visibility = View.VISIBLE
             titleText.text = getHierarchyTitle()
@@ -335,7 +346,11 @@ class MainActivity : AppCompatActivity() {
             folderHeader.visibility = View.GONE
             headerBackButton.visibility = View.GONE
             titleText.text = getString(R.string.app_name)
-            if (currentMode == VideoMode.FOLDERS || currentMode == VideoMode.VIDEOS || currentMode == VideoMode.HIERARCHY) {
+            if (
+                browserState.currentMode == VideoMode.FOLDERS ||
+                browserState.currentMode == VideoMode.VIDEOS ||
+                browserState.currentMode == VideoMode.HIERARCHY
+            ) {
                 applyVideoDisplayMode()
             } else {
                 list.layoutManager = LinearLayoutManager(this)
@@ -371,11 +386,11 @@ class MainActivity : AppCompatActivity() {
         val confirmButton = content.findViewById<Button>(R.id.settingsConfirm)
         val defaultColor = modeFolders.currentTextColor
         val selectedColor = getColor(R.color.brand_green)
-        var pendingMode = currentMode
-        var pendingDisplay = videoDisplayMode
-        var pendingTileSpan = tileSpanCount
-        var pendingSort = sortMode
-        var pendingOrder = sortOrder
+        var pendingMode = browserState.currentMode
+        var pendingDisplay = browserState.videoDisplayMode
+        var pendingTileSpan = browserState.tileSpanCount
+        var pendingSort = browserState.sortMode
+        var pendingOrder = browserState.sortOrder
         updateModeSelectionUI(
             modeFolders,
             modeHierarchy,
@@ -591,28 +606,34 @@ class MainActivity : AppCompatActivity() {
 
         cancelButton.setOnClickListener { dialog.dismiss() }
         confirmButton.setOnClickListener {
-            val modeChanged = pendingMode != currentMode
-            val displayChanged = pendingDisplay != videoDisplayMode
-            val tileSpanChanged = pendingTileSpan != tileSpanCount
-            val sortChanged = pendingSort != sortMode
-            val orderChanged = pendingOrder != sortOrder
+            val modeChanged = pendingMode != browserState.currentMode
+            val displayChanged = pendingDisplay != browserState.videoDisplayMode
+            val tileSpanChanged = pendingTileSpan != browserState.tileSpanCount
+            val sortChanged = pendingSort != browserState.sortMode
+            val orderChanged = pendingOrder != browserState.sortOrder
             if (displayChanged) {
-                videoDisplayMode = pendingDisplay
-                saveDisplayMode()
+                saveDisplayMode(pendingDisplay)
             }
             if (tileSpanChanged) {
-                tileSpanCount = pendingTileSpan
-                saveTileSpanCount()
+                saveTileSpanCount(pendingTileSpan)
             }
             if (sortChanged || orderChanged) {
-                sortMode = pendingSort
-                sortOrder = pendingOrder
-                saveSortMode()
-                saveSortOrder()
+                saveSortMode(pendingSort)
+                saveSortOrder(pendingOrder)
+            }
+            if (displayChanged || tileSpanChanged || sortChanged || orderChanged) {
+                viewModel.updateState {
+                    it.copy(
+                        videoDisplayMode = pendingDisplay,
+                        tileSpanCount = pendingTileSpan,
+                        sortMode = pendingSort,
+                        sortOrder = pendingOrder
+                    )
+                }
             }
             if (modeChanged) {
                 setMode(pendingMode)
-            } else if (displayChanged || (tileSpanChanged && videoDisplayMode == VideoDisplayMode.TILE)) {
+            } else if (displayChanged || (tileSpanChanged && pendingDisplay == VideoDisplayMode.TILE)) {
                 applyVideoDisplayMode()
             }
             if ((sortChanged || orderChanged) && !modeChanged) {
@@ -765,17 +786,19 @@ class MainActivity : AppCompatActivity() {
             MediaStore.Video.Media.SIZE,
             MediaStore.Video.Media.DATE_MODIFIED
         )
-        val (selection, selectionArgs) = when (item.type) {
+        var selection: String? = null
+        var selectionArgs: Array<String>? = null
+        when (item.type) {
             DisplayItem.Type.FOLDER -> {
                 val bucketId = item.bucketId ?: return null
-                "${MediaStore.Video.Media.BUCKET_ID}=?" to arrayOf(bucketId)
+                selection = "${MediaStore.Video.Media.BUCKET_ID}=?"
+                selectionArgs = arrayOf(bucketId)
             }
             DisplayItem.Type.HIERARCHY -> {
                 val path = item.bucketId ?: ""
-                if (path.isEmpty()) {
-                    null to null
-                } else {
-                    "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?" to arrayOf("$path%")
+                if (path.isNotEmpty()) {
+                    selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
+                    selectionArgs = arrayOf("$path%")
                 }
             }
             else -> return null
@@ -870,744 +893,95 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun setMode(mode: VideoMode) {
-        currentMode = mode
-        inFolderVideos = false
-        selectedBucketId = null
-        selectedBucketName = null
-        if (mode == VideoMode.HIERARCHY) {
-            hierarchyPath = ""
+        viewModel.updateState {
+            it.copy(
+                currentMode = mode,
+                inFolderVideos = false,
+                selectedBucketId = null,
+                selectedBucketName = null,
+                hierarchyPath = if (mode == VideoMode.HIERARCHY) "" else it.hierarchyPath
+            )
         }
-        saveMode()
-        updateHeaderState()
+        saveMode(mode)
         loadIfPermitted()
     }
 
     private fun applyVideoDisplayMode() {
-        adapter.setVideoDisplayMode(videoDisplayMode)
-        list.layoutManager = if (videoDisplayMode == VideoDisplayMode.TILE) {
-            GridLayoutManager(this, tileSpanCount)
+        adapter.setVideoDisplayMode(browserState.videoDisplayMode)
+        list.layoutManager = if (browserState.videoDisplayMode == VideoDisplayMode.TILE) {
+            GridLayoutManager(this, browserState.tileSpanCount)
         } else {
             LinearLayoutManager(this)
         }
         adapter.notifyDataSetChanged()
     }
 
-    private fun onSelectionChanged(selectedCount: Int, selectionMode: Boolean) {
-        selectionBar.visibility = if (selectionMode) View.VISIBLE else View.GONE
-    }
-
-    private fun startCopySelected() {
-        val selected = adapter.getSelectedItems()
-        if (selected.isEmpty()) {
-            Toast.makeText(this, getString(R.string.copy_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val videos = selected.filter { it.type == DisplayItem.Type.VIDEO && !it.contentUri.isNullOrEmpty() }
-        if (videos.isEmpty()) {
-            Toast.makeText(this, getString(R.string.copy_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        pendingCopyItems = videos
-        pendingOperation = TransferOperation.COPY
-        copyDestinationLauncher.launch(null)
-    }
-
-    private fun startMoveSelected() {
-        val selected = adapter.getSelectedItems()
-        if (selected.isEmpty()) {
-            Toast.makeText(this, getString(R.string.copy_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val videos = selected.filter { it.type == DisplayItem.Type.VIDEO && !it.contentUri.isNullOrEmpty() }
-        if (videos.isEmpty()) {
-            Toast.makeText(this, getString(R.string.copy_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        pendingCopyItems = videos
-        pendingOperation = TransferOperation.MOVE
-        copyDestinationLauncher.launch(null)
-    }
-
-    private fun startDeleteSelected() {
-        val selected = adapter.getSelectedItems()
-        if (selected.isEmpty()) {
-            Toast.makeText(this, getString(R.string.delete_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val videos = selected.filter { it.type == DisplayItem.Type.VIDEO && !it.contentUri.isNullOrEmpty() }
-        if (videos.isEmpty()) {
-            Toast.makeText(this, getString(R.string.delete_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.delete_title))
-            .setMessage(getString(R.string.delete_message, videos.size))
-            .setPositiveButton(R.string.delete_confirm) { _, _ ->
-                val cancelFlag = AtomicBoolean(false)
-                val progressUi = showCopyProgress(videos.size, 0L, cancelFlag, TransferOperation.DELETE)
-                Thread {
-                    var successCount = 0
-                    var failCount = 0
-                    var skipCount = 0
-                    var completed = 0
-                    var currentFileName = "-"
-                    for (item in videos) {
-                        if (cancelFlag.get()) {
-                            break
-                        }
-                        val uri = item.contentUri?.let { Uri.parse(it) }
-                        currentFileName = item.title
-                        if (uri == null) {
-                            failCount++
-                            completed++
-                            updateCopyProgress(
-                                progressUi,
-                                completed,
-                                videos.size,
-                                successCount,
-                                failCount,
-                                skipCount,
-                                0L,
-                                0L,
-                                currentFileName
-                            )
-                            continue
-                        }
-                        if (deleteSourceUri(uri)) {
-                            successCount++
-                        } else {
-                            failCount++
-                        }
-                        completed++
-                        updateCopyProgress(
-                            progressUi,
-                            completed,
-                            videos.size,
-                            successCount,
-                            failCount,
-                            skipCount,
-                            0L,
-                            0L,
-                            currentFileName
-                        )
-                    }
-                    runOnUiThread {
-                        progressUi.dialog.dismiss()
-                        if (cancelFlag.get()) {
-                            Toast.makeText(this, getString(R.string.delete_cancelled), Toast.LENGTH_SHORT).show()
-                            adapter.clearSelection()
-                            loadIfPermitted()
-                            return@runOnUiThread
-                        }
-                        if (failCount == 0) {
-                            Toast.makeText(
-                                this,
-                                getString(R.string.delete_done, successCount),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else if (successCount == 0) {
-                            Toast.makeText(this, getString(R.string.delete_failed), Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(
-                                this,
-                                getString(R.string.delete_partial, successCount, failCount),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                        adapter.clearSelection()
-                        loadIfPermitted()
-                    }
-                }.start()
-            }
-            .setNegativeButton(R.string.delete_cancel, null)
-            .show()
-    }
-
-    private fun handleCopyToTree(treeUri: Uri, items: List<DisplayItem>, operation: TransferOperation) {
-        if (items.isEmpty()) {
-            return
-        }
-        try {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            contentResolver.takePersistableUriPermission(treeUri, flags)
-        } catch (_: SecurityException) {
-        }
-        val root = DocumentFile.fromTreeUri(this, treeUri)
-        if (root == null || !root.isDirectory) {
-            Toast.makeText(this, getString(R.string.copy_failed), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val cancelFlag = AtomicBoolean(false)
-        val conflictState = ConflictDecisionState()
-        val sizePlan = calculateCopySizePlan(items)
-        val progressUi = showCopyProgress(items.size, sizePlan.totalBytes, cancelFlag, operation)
-        Thread {
-            var successCount = 0
-            var failCount = 0
-            var skipCount = 0
-            var completed = 0
-            var copiedBytes = 0L
-            var lastUpdate = 0L
-            var currentFileName = "-"
-            for (item in items) {
-                if (cancelFlag.get()) {
-                    break
-                }
-                val srcUri = item.contentUri?.let { Uri.parse(it) }
-                if (srcUri == null) {
-                    currentFileName = item.title
-                    failCount++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
-                }
-                val displayName = queryDisplayName(srcUri) ?: item.title
-                currentFileName = displayName
-                val mimeType = contentResolver.getType(srcUri) ?: "video/*"
-                val resolution = resolveTargetFile(root, displayName, cancelFlag, conflictState)
-                if (resolution == null) {
-                    skipCount++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
-                }
-                if (resolution.overwriteFailed) {
-                    failCount++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
-                }
-                val targetFile = root.createFile(mimeType, resolution.targetName)
-                if (targetFile == null) {
-                    failCount++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
-                }
-                val copied = copyUriToDocument(srcUri, targetFile, cancelFlag) { bytesDelta ->
-                    if (bytesDelta > 0) {
-                        copiedBytes += bytesDelta
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - lastUpdate >= PROGRESS_UPDATE_MS) {
-                            lastUpdate = now
-                            updateCopyProgress(
-                                progressUi,
-                                completed,
-                                items.size,
-                                successCount,
-                                failCount,
-                                skipCount,
-                                copiedBytes,
-                                sizePlan.totalBytes,
-                                currentFileName
-                            )
-                        }
-                    }
-                }
-                if (copied) {
-                    successCount++
-                    if (operation == TransferOperation.MOVE && !cancelFlag.get()) {
-                        val deleted = deleteSourceUri(srcUri)
-                        if (!deleted) {
-                            if (successCount > 0) {
-                                successCount--
-                            }
-                            failCount++
-                        }
-                    }
-                } else {
-                    failCount++
-                    if (!cancelFlag.get()) {
-                        targetFile.delete()
-                    }
-                }
-                completed++
-                updateCopyProgress(
-                    progressUi,
-                    completed,
-                    items.size,
-                    successCount,
-                    failCount,
-                    skipCount,
-                    copiedBytes,
-                    sizePlan.totalBytes,
-                    currentFileName
-                )
-            }
-            runOnUiThread {
-                progressUi.dialog.dismiss()
-                if (cancelFlag.get()) {
-                    val cancelMessage = if (operation == TransferOperation.MOVE) {
-                        getString(R.string.move_cancelled)
-                    } else {
-                        getString(R.string.copy_cancelled)
-                    }
-                    Toast.makeText(this, cancelMessage, Toast.LENGTH_SHORT).show()
-                    adapter.clearSelection()
-                    pendingCopyItems = emptyList()
-                    return@runOnUiThread
-                }
-                if (operation == TransferOperation.MOVE) {
-                    if (failCount == 0 && skipCount == 0) {
-                        Toast.makeText(this, getString(R.string.move_done, successCount), Toast.LENGTH_SHORT).show()
-                    } else if (successCount == 0 && failCount > 0) {
-                        Toast.makeText(this, getString(R.string.move_failed), Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(
-                            this,
-                            getString(R.string.move_partial, successCount, failCount, skipCount),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                } else {
-                    if (failCount == 0 && skipCount == 0) {
-                        Toast.makeText(this, getString(R.string.copy_done, successCount), Toast.LENGTH_SHORT).show()
-                    } else if (successCount == 0 && failCount > 0) {
-                        Toast.makeText(this, getString(R.string.copy_failed), Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(
-                            this,
-                            getString(R.string.copy_partial, successCount, failCount, skipCount),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-                adapter.clearSelection()
-                pendingCopyItems = emptyList()
-            }
-        }.start()
-    }
-
-    private fun queryDisplayName(uri: Uri): String? {
-        val projection = arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)
-        contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-                val name = cursor.getString(nameCol)
-                if (!name.isNullOrEmpty()) {
-                    return name
-                }
-            }
-        }
-        return null
-    }
-
-    private fun buildUniqueName(parent: DocumentFile, baseName: String): String {
-        if (parent.findFile(baseName) == null) {
-            return baseName
-        }
-        val dot = baseName.lastIndexOf('.')
-        val stem = if (dot > 0) baseName.substring(0, dot) else baseName
-        val ext = if (dot > 0) baseName.substring(dot) else ""
-        var index = 1
-        var candidate = "$stem ($index)$ext"
-        while (parent.findFile(candidate) != null) {
-            index++
-            candidate = "$stem ($index)$ext"
-        }
-        return candidate
-    }
-
-    private fun copyUriToDocument(
-        sourceUri: Uri,
-        target: DocumentFile,
-        cancelFlag: AtomicBoolean,
-        onBytesCopied: (Long) -> Unit
-    ): Boolean {
-        return try {
-            contentResolver.openInputStream(sourceUri)?.use { input ->
-                contentResolver.openOutputStream(target.uri)?.use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var read = input.read(buffer)
-                    while (read >= 0) {
-                        if (cancelFlag.get()) {
-                            return false
-                        }
-                        if (read > 0) {
-                            output.write(buffer, 0, read)
-                            onBytesCopied(read.toLong())
-                        }
-                        read = input.read(buffer)
-                    }
-                    output.flush()
-                    true
-                } ?: false
-            } ?: false
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private data class CopySizePlan(
-        val totalBytes: Long
-    )
-
-    private data class CopyProgressUi(
-        val dialog: BottomSheetDialog,
-        val progressBar: ProgressBar,
-        val countText: TextView,
-        val sizeText: TextView,
-        val percentText: TextView,
-        val fileText: TextView,
-        val cancelButton: Button
-    )
-
-    private fun showCopyProgress(
-        total: Int,
-        totalBytes: Long,
-        cancelFlag: AtomicBoolean,
-        operation: TransferOperation
-    ): CopyProgressUi {
-        val content = layoutInflater.inflate(R.layout.bottom_sheet_copy_progress, null)
-        val progressBar = content.findViewById<ProgressBar>(R.id.copyProgressBar)
-        val titleText = content.findViewById<TextView>(R.id.copyProgressTitle)
-        val countText = content.findViewById<TextView>(R.id.copyProgressCount)
-        val sizeText = content.findViewById<TextView>(R.id.copyProgressSize)
-        val percentText = content.findViewById<TextView>(R.id.copyProgressPercent)
-        val fileText = content.findViewById<TextView>(R.id.copyProgressFile)
-        val cancelButton = content.findViewById<Button>(R.id.copyProgressCancel)
-        titleText.text = when (operation) {
-            TransferOperation.MOVE -> getString(R.string.move_progress_title)
-            TransferOperation.DELETE -> getString(R.string.delete_progress_title)
-            else -> getString(R.string.copy_progress_title)
-        }
-        if (totalBytes > 0L) {
-            progressBar.isIndeterminate = false
-            progressBar.max = PROGRESS_MAX
-            progressBar.progress = 0
-        } else {
-            progressBar.isIndeterminate = true
-        }
-        countText.text = getString(R.string.copy_progress_count, 0, total, 0, 0, 0)
-        sizeText.text = getString(
-            R.string.copy_progress_size,
-            Formatter.formatFileSize(this, 0L),
-            Formatter.formatFileSize(this, totalBytes.coerceAtLeast(0L))
-        )
-        percentText.text = getString(R.string.copy_progress_percent, 0)
-        fileText.text = getString(R.string.copy_progress_file, "-")
-        val dialog = BottomSheetDialog(this)
-        dialog.setContentView(content)
-        dialog.setCancelable(false)
-        dialog.show()
-        cancelButton.setOnClickListener {
-            cancelFlag.set(true)
-            cancelButton.isEnabled = false
-            cancelButton.text = getString(R.string.copy_cancelling)
-        }
-        return CopyProgressUi(dialog, progressBar, countText, sizeText, percentText, fileText, cancelButton)
-    }
-
-    private fun updateCopyProgress(
-        ui: CopyProgressUi,
-        completed: Int,
-        total: Int,
-        successCount: Int,
-        failCount: Int,
-        skipCount: Int,
-        copiedBytes: Long,
-        totalBytes: Long,
-        currentFileName: String
-    ) {
-        runOnUiThread {
-            if (!ui.progressBar.isIndeterminate && totalBytes > 0L) {
-                val percent = (copiedBytes.coerceAtLeast(0L) * PROGRESS_MAX / totalBytes.coerceAtLeast(1L))
-                ui.progressBar.progress = percent.coerceIn(0L, PROGRESS_MAX.toLong()).toInt()
-            }
-            ui.countText.text = getString(
-                R.string.copy_progress_count,
-                completed.coerceAtMost(total),
-                total,
-                successCount,
-                failCount,
-                skipCount
-            )
-            ui.sizeText.text = getString(
-                R.string.copy_progress_size,
-                Formatter.formatFileSize(this, copiedBytes.coerceAtLeast(0L)),
-                Formatter.formatFileSize(this, totalBytes.coerceAtLeast(0L))
-            )
-            val percent = if (totalBytes > 0L) {
-                (copiedBytes.coerceAtLeast(0L) * 100 / totalBytes.coerceAtLeast(1L)).toInt()
-            } else {
-                0
-            }
-            ui.percentText.text = getString(R.string.copy_progress_percent, percent.coerceIn(0, 100))
-            ui.fileText.text = getString(R.string.copy_progress_file, currentFileName)
-        }
-    }
-
-    private fun calculateCopySizePlan(items: List<DisplayItem>): CopySizePlan {
-        var total = 0L
-        for (item in items) {
-            val srcUri = item.contentUri?.let { Uri.parse(it) } ?: continue
-            val size = querySizeBytes(srcUri)
-            if (size > 0) {
-                total += size
-            }
-        }
-        return CopySizePlan(total)
-    }
-
-    private fun querySizeBytes(uri: Uri): Long {
-        val projection = arrayOf(MediaStore.MediaColumns.SIZE)
-        contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-                return cursor.getLong(sizeCol)
-            }
-        }
-        return 0L
-    }
-
-    private fun deleteSourceUri(uri: Uri): Boolean {
-        try {
-            return contentResolver.delete(uri, null, null) > 0
-        } catch (e: SecurityException) {
-            Log.e(TAG_DELETE, "deleteSourceUri SecurityException uri=$uri", e)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                e is android.app.RecoverableSecurityException
-            ) {
-                val granted = requestDeletePermission(e)
-                if (granted) {
-                    return try {
-                        contentResolver.delete(uri, null, null) > 0
-                    } catch (retry: Exception) {
-                        Log.e(TAG_DELETE, "deleteSourceUri retry failed uri=$uri", retry)
-                        false
-                    }
-                }
-            }
-            return false
-        } catch (e: Exception) {
-            Log.e(TAG_DELETE, "deleteSourceUri Exception uri=$uri", e)
-            return false
-        }
-    }
-
-    private fun requestDeletePermission(
-        e: android.app.RecoverableSecurityException
-    ): Boolean {
-        val latch = CountDownLatch(1)
-        synchronized(deletePermissionLock) {
-            pendingDeleteGranted = false
-            pendingDeleteLatch = latch
-        }
-        runOnUiThread {
-            val intentSender = e.userAction.actionIntent.intentSender
-            val request = IntentSenderRequest.Builder(intentSender).build()
-            deletePermissionLauncher.launch(request)
-        }
-        latch.await()
-        synchronized(deletePermissionLock) {
-            pendingDeleteLatch = null
-            return pendingDeleteGranted
-        }
-    }
-
-    private data class ConflictResolution(
-        val targetName: String,
-        val overwriteFailed: Boolean
-    )
-
-    private data class ConflictDecision(
-        val choice: ConflictChoice,
-        val applyAll: Boolean
-    )
-
-    private data class ConflictDecisionState(
-        var applyAllChoice: ConflictChoice? = null
-    )
-
-    private enum class ConflictChoice {
-        OVERWRITE,
-        RENAME,
-        SKIP
-    }
-
-    private fun resolveTargetFile(
-        parent: DocumentFile,
-        displayName: String,
-        cancelFlag: AtomicBoolean,
-        conflictState: ConflictDecisionState
-    ): ConflictResolution? {
-        val existing = parent.findFile(displayName)
-        if (existing == null) {
-            return ConflictResolution(displayName, false)
-        }
-        if (cancelFlag.get()) {
-            return null
-        }
-        val choice = conflictState.applyAllChoice ?: run {
-            val decision = promptConflictChoice(displayName)
-            if (decision.applyAll) {
-                conflictState.applyAllChoice = decision.choice
-            }
-            decision.choice
-        }
-        return when (choice) {
-            ConflictChoice.OVERWRITE -> {
-                val deleted = try {
-                    existing.delete()
-                } catch (e: Exception) {
-                    Log.e(TAG_DELETE, "overwrite delete failed name=$displayName uri=${existing.uri}", e)
-                    false
-                }
-                ConflictResolution(displayName, !deleted)
-            }
-            ConflictChoice.RENAME -> ConflictResolution(buildUniqueName(parent, displayName), false)
-            ConflictChoice.SKIP -> null
-        }
-    }
-
-    private fun promptConflictChoice(fileName: String): ConflictDecision {
-        val latch = java.util.concurrent.CountDownLatch(1)
-        var choice = ConflictChoice.SKIP
-        var applyAll = false
-        runOnUiThread {
-            val content = layoutInflater.inflate(R.layout.dialog_conflict_resolution, null)
-            val applyAllCheck = content.findViewById<android.widget.CheckBox>(R.id.applyToAllCheck)
-            AlertDialog.Builder(this)
-                .setTitle(getString(R.string.conflict_title))
-                .setMessage(getString(R.string.conflict_message, fileName))
-                .setView(content)
-                .setCancelable(false)
-                .setPositiveButton(R.string.conflict_overwrite) { _, _ ->
-                    choice = ConflictChoice.OVERWRITE
-                    applyAll = applyAllCheck.isChecked
-                    latch.countDown()
-                }
-                .setNeutralButton(R.string.conflict_rename) { _, _ ->
-                    choice = ConflictChoice.RENAME
-                    applyAll = applyAllCheck.isChecked
-                    latch.countDown()
-                }
-                .setNegativeButton(R.string.conflict_skip) { _, _ ->
-                    choice = ConflictChoice.SKIP
-                    applyAll = applyAllCheck.isChecked
-                    latch.countDown()
-                }
-                .show()
-        }
-        latch.await()
-        return ConflictDecision(choice, applyAll)
-    }
-
-    private fun getSavedTreeUri(): Uri? {
-        val value = preferences.getString(KEY_COPY_TREE_URI, null) ?: return null
-        return try {
-            Uri.parse(value)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun hasPersistedTreePermission(uri: Uri): Boolean {
-        val target = uri.toString()
-        return contentResolver.persistedUriPermissions.any { perm ->
-            perm.isWritePermission && perm.uri.toString() == target
-        }
-    }
-
-    private fun loadPreferences() {
+    private fun loadPreferences(): VideoBrowserState {
         val modeValue = preferences.getString(KEY_MODE, VideoMode.FOLDERS.name)
         val displayValue = preferences.getString(KEY_DISPLAY, VideoDisplayMode.LIST.name)
         val tileSpanValue = preferences.getInt(KEY_TILE_SPAN, 2)
         val sortValue = preferences.getString(KEY_SORT, VideoSortMode.MODIFIED.name)
         val sortOrderValue = preferences.getString(KEY_SORT_ORDER, VideoSortOrder.DESC.name)
-        currentMode = try {
+        val mode = try {
             VideoMode.valueOf(modeValue ?: VideoMode.FOLDERS.name)
         } catch (_: IllegalArgumentException) {
             VideoMode.FOLDERS
         }
-        videoDisplayMode = try {
+        val displayMode = try {
             VideoDisplayMode.valueOf(displayValue ?: VideoDisplayMode.LIST.name)
         } catch (_: IllegalArgumentException) {
             VideoDisplayMode.LIST
         }
-        tileSpanCount = when (tileSpanValue) {
+        val tileSpan = when (tileSpanValue) {
             2, 3, 4 -> tileSpanValue
             else -> 2
         }
-        sortMode = try {
+        val sortMode = try {
             VideoSortMode.valueOf(sortValue ?: VideoSortMode.MODIFIED.name)
         } catch (_: IllegalArgumentException) {
             VideoSortMode.MODIFIED
         }
-        sortOrder = try {
+        val sortOrder = try {
             VideoSortOrder.valueOf(sortOrderValue ?: VideoSortOrder.DESC.name)
         } catch (_: IllegalArgumentException) {
             VideoSortOrder.DESC
         }
+        return VideoBrowserState(
+            currentMode = mode,
+            videoDisplayMode = displayMode,
+            tileSpanCount = tileSpan,
+            sortMode = sortMode,
+            sortOrder = sortOrder
+        )
     }
 
-    private fun saveMode() {
-        preferences.edit().putString(KEY_MODE, currentMode.name).apply()
+    private fun saveMode(mode: VideoMode) {
+        preferences.edit().putString(KEY_MODE, mode.name).apply()
     }
 
-    private fun saveDisplayMode() {
-        preferences.edit().putString(KEY_DISPLAY, videoDisplayMode.name).apply()
+    private fun saveDisplayMode(displayMode: VideoDisplayMode) {
+        preferences.edit().putString(KEY_DISPLAY, displayMode.name).apply()
     }
 
-    private fun saveTileSpanCount() {
+    private fun saveTileSpanCount(tileSpanCount: Int) {
         preferences.edit().putInt(KEY_TILE_SPAN, tileSpanCount).apply()
     }
 
-    private fun saveSortMode() {
+    private fun saveSortMode(sortMode: VideoSortMode) {
         preferences.edit().putString(KEY_SORT, sortMode.name).apply()
     }
 
-    private fun saveSortOrder() {
+    private fun saveSortOrder(sortOrder: VideoSortOrder) {
         preferences.edit().putString(KEY_SORT_ORDER, sortOrder.name).apply()
     }
 
-    private fun isHierarchyRoot(): Boolean = hierarchyPath.isEmpty()
+    private fun isHierarchyRoot(): Boolean = browserState.hierarchyPath.isEmpty()
 
     private fun getHierarchyTitle(): String {
-        if (hierarchyPath.isEmpty()) {
+        if (browserState.hierarchyPath.isEmpty()) {
             return "Root"
         }
-        var trimmed = hierarchyPath
+        var trimmed = browserState.hierarchyPath
         if (trimmed.endsWith("/")) {
             trimmed = trimmed.substring(0, trimmed.length - 1)
         }
@@ -1727,15 +1101,5 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_TILE_SPAN = "video_tile_span"
         private const val KEY_SORT = "video_sort"
         private const val KEY_SORT_ORDER = "video_sort_order"
-        private const val KEY_COPY_TREE_URI = "copy_tree_uri"
-        private const val PROGRESS_MAX = 1000
-        private const val PROGRESS_UPDATE_MS = 200L
-        private const val TAG_DELETE = "NsPlayerDelete"
-    }
-
-    private enum class TransferOperation {
-        COPY,
-        MOVE,
-        DELETE
     }
 }
