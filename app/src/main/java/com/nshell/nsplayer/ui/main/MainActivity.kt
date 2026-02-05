@@ -1,6 +1,9 @@
 package com.nshell.nsplayer.ui.main
 
 import android.Manifest
+import android.app.Activity
+import android.app.RecoverableSecurityException
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -10,6 +13,7 @@ import android.provider.MediaStore
 import android.text.format.Formatter
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.RadioGroup
 import android.widget.TextView
@@ -32,6 +36,7 @@ import com.nshell.nsplayer.data.settings.SettingsState
 import com.nshell.nsplayer.ui.player.PlayerActivity
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import com.nshell.nsplayer.ui.settings.advanced.AdvancedSettingsActivity
+import androidx.documentfile.provider.DocumentFile
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,6 +61,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var list: RecyclerView
     private var browserState = VideoBrowserState()
     private var initialSettingsApplied = false
+    private var pendingRename: RenameRequest? = null
+    private var pendingFolderRename: FolderRenameRequest? = null
+    private val preferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
 
     private val copyDestinationLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -67,6 +75,37 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         transferController.onDeletePermissionResult(result.resultCode)
+    }
+
+    private val renamePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val pending = pendingRename
+        pendingRename = null
+        if (pending == null) {
+            return@registerForActivityResult
+        }
+        if (result.resultCode == Activity.RESULT_OK) {
+            renameMediaItem(pending.item, pending.newName, allowPermissionRequest = false)
+        } else {
+            Toast.makeText(this, getString(R.string.rename_permission_denied), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private val folderRenameTreeLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        val pending = pendingFolderRename
+        pendingFolderRename = null
+        if (pending == null) {
+            return@registerForActivityResult
+        }
+        if (uri == null) {
+            Toast.makeText(this, getString(R.string.rename_folder_pick_cancelled), Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        preferences.edit().putString(KEY_FOLDER_RENAME_TREE_URI, uri.toString()).apply()
+        handleFolderRenameTree(uri, pending, showToasts = true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -639,8 +678,8 @@ class MainActivity : AppCompatActivity() {
         dialog.setContentView(content)
 
         renameButton.setOnClickListener {
-            Toast.makeText(this, getString(R.string.action_not_ready), Toast.LENGTH_SHORT).show()
             dialog.dismiss()
+            showRenameDialog(item)
         }
         propertiesButton.setOnClickListener {
             showItemPropertiesDialog(item)
@@ -667,6 +706,89 @@ class MainActivity : AppCompatActivity() {
         dialog.setCanceledOnTouchOutside(true)
         content.findViewById<Button>(R.id.propertiesClose).setOnClickListener { dialog.dismiss() }
         dialog.show()
+    }
+
+    private fun showRenameDialog(item: DisplayItem) {
+        val isVideo = item.type == DisplayItem.Type.VIDEO
+        if (!isVideo && item.type != DisplayItem.Type.FOLDER && item.type != DisplayItem.Type.HIERARCHY) {
+            Toast.makeText(this, getString(R.string.action_not_ready), Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (item.type == DisplayItem.Type.HIERARCHY && item.bucketId.isNullOrEmpty()) {
+            Toast.makeText(this, getString(R.string.rename_root_not_allowed), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val currentName = if (isVideo) {
+            queryVideoMetadata(item.contentUri)?.displayName?.ifEmpty { item.title } ?: item.title
+        } else {
+            item.title
+        }
+        val input = EditText(this)
+        input.setSingleLine(true)
+        input.hint = getString(R.string.rename_hint)
+        input.setText(currentName)
+        if (isVideo) {
+            val dot = currentName.lastIndexOf('.')
+            if (dot > 0) {
+                input.setSelection(0, dot)
+            } else {
+                input.setSelection(0, currentName.length)
+            }
+        } else {
+            input.setSelection(0, currentName.length)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.rename_title)
+            .setView(input)
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                val rawName = input.text?.toString()?.trim() ?: ""
+                val resolved = if (isVideo) {
+                    resolveRenameInput(rawName, currentName)
+                } else {
+                    rawName.trim()
+                }
+                when {
+                    resolved.isEmpty() -> {
+                        Toast.makeText(this, getString(R.string.rename_empty), Toast.LENGTH_SHORT).show()
+                    }
+                    resolved == currentName -> {
+                        return@setPositiveButton
+                    }
+                    containsInvalidNameChars(resolved) -> {
+                        Toast.makeText(this, getString(R.string.rename_invalid), Toast.LENGTH_SHORT).show()
+                    }
+                    else -> {
+                        if (isVideo) {
+                            renameMediaItem(item, resolved, allowPermissionRequest = true)
+                        } else {
+                            val relativePath = resolveFolderRelativePath(item)
+                            if (relativePath.isNullOrEmpty()) {
+                                Toast.makeText(this, getString(R.string.rename_failed), Toast.LENGTH_SHORT).show()
+                                return@setPositiveButton
+                            }
+                            val request = FolderRenameRequest(item, resolved, relativePath)
+                            val savedTree = getSavedFolderRenameTreeUri()
+                            if (savedTree != null && hasPersistedTreePermission(savedTree)) {
+                                val result = tryFolderRenameWithTree(savedTree, request, showToasts = false)
+                                if (result == FolderRenameResult.SUCCESS) {
+                                    Toast.makeText(this, getString(R.string.rename_done), Toast.LENGTH_SHORT).show()
+                                    loadIfPermitted()
+                                    return@setPositiveButton
+                                }
+                            }
+                            pendingFolderRename = request
+                            Toast.makeText(
+                                this,
+                                getString(R.string.rename_folder_pick_root),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            folderRenameTreeLauncher.launch(null)
+                        }
+                    }
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun loadItemProperties(item: DisplayItem): ItemProperties {
@@ -755,6 +877,156 @@ class MainActivity : AppCompatActivity() {
             )
         }
         return null
+    }
+
+    private fun resolveRenameInput(input: String, originalName: String): String {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) {
+            return ""
+        }
+        if (trimmed.contains('.') || !originalName.contains('.')) {
+            return trimmed
+        }
+        val ext = originalName.substringAfterLast('.', "")
+        return if (ext.isNotEmpty()) "$trimmed.$ext" else trimmed
+    }
+
+    private fun containsInvalidNameChars(name: String): Boolean {
+        return name.contains('/') || name.contains('\\')
+    }
+
+    private fun renameMediaItem(
+        item: DisplayItem,
+        newName: String,
+        allowPermissionRequest: Boolean
+    ) {
+        val uri = item.contentUri?.let { Uri.parse(it) }
+        if (uri == null) {
+            Toast.makeText(this, getString(R.string.rename_failed), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
+        }
+        try {
+            val updated = contentResolver.update(uri, values, null, null)
+            if (updated > 0) {
+                Toast.makeText(this, getString(R.string.rename_done), Toast.LENGTH_SHORT).show()
+                loadIfPermitted()
+            } else {
+                Toast.makeText(this, getString(R.string.rename_failed), Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: SecurityException) {
+            if (allowPermissionRequest &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                e is RecoverableSecurityException
+            ) {
+                pendingRename = RenameRequest(item, newName)
+                val intentSender = e.userAction.actionIntent.intentSender
+                val request = androidx.activity.result.IntentSenderRequest.Builder(intentSender).build()
+                renamePermissionLauncher.launch(request)
+                return
+            }
+            Toast.makeText(this, getString(R.string.rename_failed), Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(this, getString(R.string.rename_failed), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun resolveFolderRelativePath(item: DisplayItem): String? {
+        return when (item.type) {
+            DisplayItem.Type.FOLDER -> queryFolderInfo(item)?.relativePath
+            DisplayItem.Type.HIERARCHY -> item.bucketId
+            else -> null
+        }?.trim()
+    }
+
+    private fun handleFolderRenameTree(uri: Uri, request: FolderRenameRequest, showToasts: Boolean) {
+        val result = tryFolderRenameWithTree(uri, request, showToasts)
+        if (result == FolderRenameResult.SUCCESS && showToasts) {
+            Toast.makeText(this, getString(R.string.rename_done), Toast.LENGTH_SHORT).show()
+            loadIfPermitted()
+        }
+    }
+
+    private fun tryFolderRenameWithTree(
+        uri: Uri,
+        request: FolderRenameRequest,
+        showToasts: Boolean
+    ): FolderRenameResult {
+        try {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            contentResolver.takePersistableUriPermission(uri, flags)
+        } catch (_: SecurityException) {
+        }
+        val root = DocumentFile.fromTreeUri(this, uri)
+        if (root == null || !root.isDirectory) {
+            if (showToasts) {
+                Toast.makeText(this, getString(R.string.rename_folder_root_invalid), Toast.LENGTH_SHORT).show()
+            }
+            return FolderRenameResult.INVALID_ROOT
+        }
+        val target = findFolderInTree(root, request.relativePath)
+        if (target == null) {
+            if (showToasts) {
+                Toast.makeText(this, getString(R.string.rename_folder_not_found), Toast.LENGTH_SHORT).show()
+            }
+            return FolderRenameResult.NOT_FOUND
+        }
+        val success = try {
+            target.renameTo(request.newName)
+        } catch (_: Exception) {
+            false
+        }
+        if (success) {
+            return FolderRenameResult.SUCCESS
+        }
+        if (showToasts) {
+            Toast.makeText(this, getString(R.string.rename_failed), Toast.LENGTH_SHORT).show()
+        }
+        return FolderRenameResult.FAILED
+    }
+
+    private fun findFolderInTree(root: DocumentFile, relativePath: String): DocumentFile? {
+        val segments = relativePath.split('/').filter { it.isNotBlank() }
+        if (segments.isEmpty()) {
+            return null
+        }
+        fun traverseFrom(startIndex: Int): DocumentFile? {
+            var current: DocumentFile? = root
+            for (i in startIndex until segments.size) {
+                val next = current?.findFile(segments[i]) ?: return null
+                if (!next.isDirectory) {
+                    return null
+                }
+                current = next
+            }
+            return current
+        }
+        traverseFrom(0)?.let { return it }
+        for (start in 1 until segments.size) {
+            val found = traverseFrom(start)
+            if (found != null) {
+                return found
+            }
+        }
+        return null
+    }
+
+    private fun getSavedFolderRenameTreeUri(): Uri? {
+        val value = preferences.getString(KEY_FOLDER_RENAME_TREE_URI, null) ?: return null
+        return try {
+            Uri.parse(value)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun hasPersistedTreePermission(uri: Uri): Boolean {
+        val target = uri.toString()
+        return contentResolver.persistedUriPermissions.any { perm ->
+            perm.isWritePermission && perm.uri.toString() == target
+        }
     }
 
     private fun queryFolderInfo(item: DisplayItem): FolderMeta? {
@@ -868,6 +1140,24 @@ class MainActivity : AppCompatActivity() {
         val sizeBytes: Long,
         val modifiedSeconds: Long
     )
+
+    private data class RenameRequest(
+        val item: DisplayItem,
+        val newName: String
+    )
+
+    private data class FolderRenameRequest(
+        val item: DisplayItem,
+        val newName: String,
+        val relativePath: String
+    )
+
+    private enum class FolderRenameResult {
+        SUCCESS,
+        NOT_FOUND,
+        INVALID_ROOT,
+        FAILED
+    }
 
     private fun setMode(mode: VideoMode) {
         viewModel.updateState {
@@ -1071,5 +1361,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val REQUEST_PERMISSION = 1001
         private const val PREFS = "nsplayer_prefs"
+        private const val KEY_FOLDER_RENAME_TREE_URI = "folder_rename_tree_uri"
     }
 }
