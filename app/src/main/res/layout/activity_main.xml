@@ -111,7 +111,7 @@
         android:id="@+id/selectionBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/white"
+        android:background="@color/brand_green"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:padding="12dp"
@@ -122,7 +122,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="@string/select_all" />
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:text="@string/select_all"
+            android:textColor="@color/white" />
 
         <Button
             android:id="@+id/selectionMoveButton"
@@ -130,7 +132,9 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:text="@string/move" />
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:text="@string/move"
+            android:textColor="@color/white" />
 
         <Button
             android:id="@+id/selectionCopyButton"
@@ -138,7 +142,19 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:text="@string/copy" />
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:text="@string/copy"
+            android:textColor="@color/white" />
+
+        <Button
+            android:id="@+id/selectionDeleteButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:text="@string/delete"
+            android:textColor="@color/white" />
     </LinearLayout>
 
     <TextView

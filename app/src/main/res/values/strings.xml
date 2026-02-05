@@ -49,6 +49,42 @@
     <string name="select_all">전체선택</string>
     <string name="move">이동</string>
     <string name="copy">복사</string>
+    <string name="copy_no_selection">복사할 파일을 선택해 주세요.</string>
+    <string name="copy_in_progress">복사 중...</string>
+    <string name="copy_done">%1$d개 복사 완료</string>
+    <string name="copy_partial">%1$d개 복사, %2$d개 실패, %3$d개 건너뜀</string>
+    <string name="copy_failed">복사에 실패했습니다.</string>
+    <string name="copy_progress_title">복사 진행 중</string>
+    <string name="copy_progress_count">%1$d/%2$d (성공 %3$d, 실패 %4$d, 건너뜀 %5$d)</string>
+    <string name="copy_progress_size">%1$s / %2$s</string>
+    <string name="copy_progress_file">파일: %1$s</string>
+    <string name="copy_progress_file_placeholder">파일: -</string>
+    <string name="copy_progress_percent">진행률: %1$d%%</string>
+    <string name="copy_cancel">취소</string>
+    <string name="copy_cancelling">취소 중...</string>
+    <string name="copy_cancelled">복사가 취소되었습니다.</string>
+    <string name="move_progress_title">이동 진행 중</string>
+    <string name="move_done">%1$d개 이동 완료</string>
+    <string name="move_partial">%1$d개 이동, %2$d개 실패, %3$d개 건너뜀</string>
+    <string name="move_failed">이동에 실패했습니다.</string>
+    <string name="move_cancelled">이동이 취소되었습니다.</string>
+    <string name="delete">삭제</string>
+    <string name="delete_no_selection">삭제할 파일을 선택해 주세요.</string>
+    <string name="delete_title">파일 삭제</string>
+    <string name="delete_message">%1$d개 파일을 삭제할까요?</string>
+    <string name="delete_confirm">삭제</string>
+    <string name="delete_cancel">취소</string>
+    <string name="delete_done">%1$d개 삭제 완료</string>
+    <string name="delete_partial">%1$d개 삭제, %2$d개 실패</string>
+    <string name="delete_failed">삭제에 실패했습니다.</string>
+    <string name="delete_progress_title">삭제 진행 중</string>
+    <string name="delete_cancelled">삭제가 취소되었습니다.</string>
+    <string name="conflict_title">같은 이름의 파일이 있습니다</string>
+    <string name="conflict_message">"%1$s" 파일이 이미 존재합니다.</string>
+    <string name="conflict_overwrite">덮어쓰기</string>
+    <string name="conflict_rename">이름변경</string>
+    <string name="conflict_skip">건너뛰기</string>
+    <string name="conflict_apply_all">현재 작업의 모든 충돌에 동일 적용</string>
 </resources>
 
 

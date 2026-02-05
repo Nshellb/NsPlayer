@@ -66,6 +66,13 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
 
     fun isAllSelected(): Boolean = items.isNotEmpty() && selectedPositions.size == items.size
 
+    fun getSelectedItems(): List<DisplayItem> {
+        if (selectedPositions.isEmpty()) {
+            return emptyList()
+        }
+        return selectedPositions.sorted().mapNotNull { index -> items.getOrNull(index) }
+    }
+
     fun selectAll() {
         selectionMode = true
         selectedPositions.clear()
