@@ -4,25 +4,41 @@
     android:layout_height="wrap_content"
     android:background="@drawable/popup_background"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="0dp">
 
-    <TextView
-        android:id="@+id/settingsTitle"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:id="@+id/settingsHeader"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/settings_title"
-        android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
-        android:textStyle="bold"
-        android:textSize="@dimen/settings_popup_title_size" />
+        android:background="@color/brand_green"
+        android:padding="12dp">
 
-    <TextView
-        android:id="@+id/settingsModeTitle"
-        android:layout_width="wrap_content"
+        <TextView
+            android:id="@+id/settingsTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_title"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:textSize="@dimen/settings_popup_title_size" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/settingsContent"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="@string/settings_mode_title"
-        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
-        android:textSize="@dimen/settings_popup_section_size" />
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/settingsModeTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/settings_mode_title"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+            android:textSize="@dimen/settings_popup_section_size" />
 
     <LinearLayout
         android:id="@+id/settingsModeRow"
@@ -64,7 +80,8 @@
         android:layout_height="1dp"
         android:layout_marginTop="10dp"
         android:layout_marginBottom="6dp"
-        android:background="#E0E0E0" />
+        android:background="?android:attr/textColorSecondary"
+        android:alpha="0.12" />
 
     <TextView
         android:id="@+id/displayTitle"
@@ -204,7 +221,8 @@
         android:layout_height="1dp"
         android:layout_marginTop="10dp"
         android:layout_marginBottom="6dp"
-        android:background="#E0E0E0" />
+        android:background="?android:attr/textColorSecondary"
+        android:alpha="0.12" />
 
     <TextView
         android:id="@+id/sortTitle"
@@ -285,7 +303,8 @@
         android:layout_height="1dp"
         android:layout_marginTop="10dp"
         android:layout_marginBottom="6dp"
-        android:background="#E0E0E0" />
+        android:background="?android:attr/textColorSecondary"
+        android:alpha="0.12" />
 
     <LinearLayout
         android:id="@+id/settingsAdvancedRow"
@@ -328,6 +347,8 @@
             android:id="@+id/settingsCancel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:backgroundTint="@color/brand_green"
+            android:textColor="@color/white"
             android:text="@string/cancel" />
 
         <Button
@@ -335,6 +356,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
+            android:backgroundTint="@color/brand_green"
+            android:textColor="@color/white"
             android:text="@string/confirm" />
+    </LinearLayout>
     </LinearLayout>
 </LinearLayout>

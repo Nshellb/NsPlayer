@@ -97,5 +97,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="end"
         android:layout_marginTop="16dp"
+        android:backgroundTint="@color/brand_green"
+        android:textColor="@color/white"
         android:text="@string/property_close" />
 </LinearLayout>

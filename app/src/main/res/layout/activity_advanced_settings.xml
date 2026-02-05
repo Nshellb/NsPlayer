@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/white"
+    android:background="?android:attr/colorBackground"
     android:orientation="vertical">
 
     <include
@@ -29,7 +29,8 @@
             android:layout_height="1dp"
             android:layout_marginTop="12dp"
             android:layout_marginBottom="12dp"
-            android:background="#E0E0E0" />
+            android:background="?android:attr/textColorSecondary"
+            android:alpha="0.12" />
 
         <include
             android:id="@+id/advancedSearchFoldersRow"
@@ -41,7 +42,8 @@
             android:layout_height="1dp"
             android:layout_marginTop="12dp"
             android:layout_marginBottom="12dp"
-            android:background="#E0E0E0" />
+            android:background="?android:attr/textColorSecondary"
+            android:alpha="0.12" />
 
         <TextView
             android:id="@+id/advancedVisibleItemsTitle"
@@ -59,7 +61,8 @@
             android:layout_height="1dp"
             android:layout_marginTop="12dp"
             android:layout_marginBottom="12dp"
-            android:background="#E0E0E0" />
+            android:background="?android:attr/textColorSecondary"
+            android:alpha="0.12" />
 
         <include
             android:id="@+id/advancedNoMediaRow"
