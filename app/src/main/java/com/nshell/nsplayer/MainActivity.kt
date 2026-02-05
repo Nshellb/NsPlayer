@@ -50,7 +50,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var emptyText: TextView
     private lateinit var folderTitle: TextView
     private lateinit var folderHeader: View
-    private lateinit var videoDisplayGroup: View
     private lateinit var headerBackButton: View
     private lateinit var titleText: TextView
     private lateinit var selectionBar: View
@@ -105,7 +104,6 @@ class MainActivity : AppCompatActivity() {
         emptyText = findViewById(R.id.emptyText)
         folderTitle = findViewById(R.id.folderTitle)
         folderHeader = findViewById(R.id.folderHeader)
-        videoDisplayGroup = findViewById(R.id.videoDisplayGroup)
         headerBackButton = findViewById(R.id.headerBackButton)
         titleText = findViewById(R.id.titleText)
         selectionBar = findViewById(R.id.selectionBar)
@@ -150,20 +148,6 @@ class MainActivity : AppCompatActivity() {
 
         val settingsButton = findViewById<View>(R.id.settingsButton)
         settingsButton.setOnClickListener { showSettingsDialog(it) }
-
-        val displayGroup = findViewById<RadioGroup>(R.id.videoDisplayGroup)
-        displayGroup.check(
-            if (videoDisplayMode == VideoDisplayMode.TILE) R.id.videoDisplayTile else R.id.videoDisplayList
-        )
-        displayGroup.setOnCheckedChangeListener { _, checkedId ->
-            videoDisplayMode = if (checkedId == R.id.videoDisplayTile) {
-                VideoDisplayMode.TILE
-            } else {
-                VideoDisplayMode.LIST
-            }
-            saveDisplayMode()
-            applyVideoDisplayMode()
-        }
 
         val backButton = findViewById<Button>(R.id.backButton)
         backButton.setOnClickListener {
@@ -343,20 +327,17 @@ class MainActivity : AppCompatActivity() {
             headerBackButton.visibility = View.VISIBLE
             val title = selectedBucketName ?: "Unknown"
             titleText.text = title
-            videoDisplayGroup.visibility = View.VISIBLE
             applyVideoDisplayMode()
         } else if (currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
             folderHeader.visibility = View.GONE
             headerBackButton.visibility = View.VISIBLE
             titleText.text = getHierarchyTitle()
-            videoDisplayGroup.visibility = View.GONE
             applyVideoDisplayMode()
         } else {
             folderHeader.visibility = View.GONE
             headerBackButton.visibility = View.GONE
             titleText.text = getString(R.string.app_name)
-            videoDisplayGroup.visibility = View.GONE
-            if (currentMode == VideoMode.VIDEOS || currentMode == VideoMode.HIERARCHY) {
+            if (currentMode == VideoMode.FOLDERS || currentMode == VideoMode.VIDEOS || currentMode == VideoMode.HIERARCHY) {
                 applyVideoDisplayMode()
             } else {
                 list.layoutManager = LinearLayoutManager(this)
@@ -526,10 +507,6 @@ class MainActivity : AppCompatActivity() {
                 saveSortMode()
                 saveSortOrder()
             }
-            val mainDisplayGroup = findViewById<RadioGroup>(R.id.videoDisplayGroup)
-            mainDisplayGroup.check(
-                if (videoDisplayMode == VideoDisplayMode.TILE) R.id.videoDisplayTile else R.id.videoDisplayList
-            )
             if (modeChanged) {
                 setMode(pendingMode)
             } else if (displayChanged) {

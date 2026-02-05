@@ -188,8 +188,15 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         }
 
         holder.thumbnail?.let { thumbnail ->
-            thumbnail.setImageResource(android.R.drawable.ic_menu_agenda)
-            thumbnail.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val isFolder = item.type == DisplayItem.Type.FOLDER || item.type == DisplayItem.Type.HIERARCHY
+            val iconRes = if (isFolder) R.drawable.ic_folder else R.drawable.ic_video
+            thumbnail.setImageResource(iconRes)
+            thumbnail.scaleType = if (isFolder) {
+                ImageView.ScaleType.FIT_CENTER
+            } else {
+                ImageView.ScaleType.CENTER_INSIDE
+            }
+            thumbnail.setPadding(0, 0, 0, 0)
             thumbnail.setColorFilter(thumbnail.context.getColor(R.color.brand_green))
         }
 
