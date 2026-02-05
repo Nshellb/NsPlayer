@@ -11,6 +11,7 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.View
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
@@ -62,6 +63,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var list: RecyclerView
     private var currentMode = VideoMode.FOLDERS
     private var videoDisplayMode = VideoDisplayMode.LIST
+    private var tileSpanCount = 2
     private var sortMode = VideoSortMode.MODIFIED
     private var sortOrder = VideoSortOrder.DESC
     private var inFolderVideos = false
@@ -353,6 +355,16 @@ class MainActivity : AppCompatActivity() {
         val modeVideos = content.findViewById<TextView>(R.id.settingsModeVideos)
         val displayList = content.findViewById<TextView>(R.id.settingsDisplayList)
         val displayTile = content.findViewById<TextView>(R.id.settingsDisplayTile)
+        val displayTileMultipliers = content.findViewById<View>(R.id.settingsDisplayTileMultipliers)
+        val displayTileX2Row = content.findViewById<View>(R.id.settingsDisplayTileX2Row)
+        val displayTileX3Row = content.findViewById<View>(R.id.settingsDisplayTileX3Row)
+        val displayTileX4Row = content.findViewById<View>(R.id.settingsDisplayTileX4Row)
+        val displayTileX2 = content.findViewById<TextView>(R.id.settingsDisplayTileX2)
+        val displayTileX3 = content.findViewById<TextView>(R.id.settingsDisplayTileX3)
+        val displayTileX4 = content.findViewById<TextView>(R.id.settingsDisplayTileX4)
+        val displayTileX2Icon = content.findViewById<ImageView>(R.id.settingsDisplayTileX2Icon)
+        val displayTileX3Icon = content.findViewById<ImageView>(R.id.settingsDisplayTileX3Icon)
+        val displayTileX4Icon = content.findViewById<ImageView>(R.id.settingsDisplayTileX4Icon)
         val sortTitle = content.findViewById<TextView>(R.id.settingsSortTitle)
         val sortModified = content.findViewById<TextView>(R.id.settingsSortModified)
         val sortDuration = content.findViewById<TextView>(R.id.settingsSortDuration)
@@ -364,6 +376,7 @@ class MainActivity : AppCompatActivity() {
         val selectedColor = getColor(R.color.brand_green)
         var pendingMode = currentMode
         var pendingDisplay = videoDisplayMode
+        var pendingTileSpan = tileSpanCount
         var pendingSort = sortMode
         var pendingOrder = sortOrder
         updateModeSelectionUI(
@@ -377,7 +390,19 @@ class MainActivity : AppCompatActivity() {
         updateDisplaySelectionUI(
             displayList,
             displayTile,
+            displayTileMultipliers,
             pendingDisplay,
+            selectedColor,
+            defaultColor
+        )
+        updateTileSpanSelectionUI(
+            displayTileX2,
+            displayTileX3,
+            displayTileX4,
+            displayTileX2Icon,
+            displayTileX3Icon,
+            displayTileX4Icon,
+            pendingTileSpan,
             selectedColor,
             defaultColor
         )
@@ -413,11 +438,82 @@ class MainActivity : AppCompatActivity() {
 
         displayList.setOnClickListener {
             pendingDisplay = VideoDisplayMode.LIST
-            updateDisplaySelectionUI(displayList, displayTile, pendingDisplay, selectedColor, defaultColor)
+            updateDisplaySelectionUI(
+                displayList,
+                displayTile,
+                displayTileMultipliers,
+                pendingDisplay,
+                selectedColor,
+                defaultColor
+            )
         }
         displayTile.setOnClickListener {
+            val wasTile = pendingDisplay == VideoDisplayMode.TILE
             pendingDisplay = VideoDisplayMode.TILE
-            updateDisplaySelectionUI(displayList, displayTile, pendingDisplay, selectedColor, defaultColor)
+            if (!wasTile) {
+                pendingTileSpan = 2
+                updateTileSpanSelectionUI(
+                    displayTileX2,
+                    displayTileX3,
+                    displayTileX4,
+                    displayTileX2Icon,
+                    displayTileX3Icon,
+                    displayTileX4Icon,
+                    pendingTileSpan,
+                    selectedColor,
+                    defaultColor
+                )
+            }
+            updateDisplaySelectionUI(
+                displayList,
+                displayTile,
+                displayTileMultipliers,
+                pendingDisplay,
+                selectedColor,
+                defaultColor
+            )
+        }
+        displayTileX2Row.setOnClickListener {
+            pendingTileSpan = 2
+            updateTileSpanSelectionUI(
+                displayTileX2,
+                displayTileX3,
+                displayTileX4,
+                displayTileX2Icon,
+                displayTileX3Icon,
+                displayTileX4Icon,
+                pendingTileSpan,
+                selectedColor,
+                defaultColor
+            )
+        }
+        displayTileX3Row.setOnClickListener {
+            pendingTileSpan = 3
+            updateTileSpanSelectionUI(
+                displayTileX2,
+                displayTileX3,
+                displayTileX4,
+                displayTileX2Icon,
+                displayTileX3Icon,
+                displayTileX4Icon,
+                pendingTileSpan,
+                selectedColor,
+                defaultColor
+            )
+        }
+        displayTileX4Row.setOnClickListener {
+            pendingTileSpan = 4
+            updateTileSpanSelectionUI(
+                displayTileX2,
+                displayTileX3,
+                displayTileX4,
+                displayTileX2Icon,
+                displayTileX3Icon,
+                displayTileX4Icon,
+                pendingTileSpan,
+                selectedColor,
+                defaultColor
+            )
         }
 
         sortTitle.setOnClickListener {
@@ -495,11 +591,16 @@ class MainActivity : AppCompatActivity() {
         confirmButton.setOnClickListener {
             val modeChanged = pendingMode != currentMode
             val displayChanged = pendingDisplay != videoDisplayMode
+            val tileSpanChanged = pendingTileSpan != tileSpanCount
             val sortChanged = pendingSort != sortMode
             val orderChanged = pendingOrder != sortOrder
             if (displayChanged) {
                 videoDisplayMode = pendingDisplay
                 saveDisplayMode()
+            }
+            if (tileSpanChanged) {
+                tileSpanCount = pendingTileSpan
+                saveTileSpanCount()
             }
             if (sortChanged || orderChanged) {
                 sortMode = pendingSort
@@ -509,7 +610,7 @@ class MainActivity : AppCompatActivity() {
             }
             if (modeChanged) {
                 setMode(pendingMode)
-            } else if (displayChanged) {
+            } else if (displayChanged || (tileSpanChanged && videoDisplayMode == VideoDisplayMode.TILE)) {
                 applyVideoDisplayMode()
             }
             if ((sortChanged || orderChanged) && !modeChanged) {
@@ -782,7 +883,7 @@ class MainActivity : AppCompatActivity() {
     private fun applyVideoDisplayMode() {
         adapter.setVideoDisplayMode(videoDisplayMode)
         list.layoutManager = if (videoDisplayMode == VideoDisplayMode.TILE) {
-            GridLayoutManager(this, 2)
+            GridLayoutManager(this, tileSpanCount)
         } else {
             LinearLayoutManager(this)
         }
@@ -1449,6 +1550,7 @@ class MainActivity : AppCompatActivity() {
     private fun loadPreferences() {
         val modeValue = preferences.getString(KEY_MODE, VideoMode.FOLDERS.name)
         val displayValue = preferences.getString(KEY_DISPLAY, VideoDisplayMode.LIST.name)
+        val tileSpanValue = preferences.getInt(KEY_TILE_SPAN, 2)
         val sortValue = preferences.getString(KEY_SORT, VideoSortMode.MODIFIED.name)
         val sortOrderValue = preferences.getString(KEY_SORT_ORDER, VideoSortOrder.DESC.name)
         currentMode = try {
@@ -1460,6 +1562,10 @@ class MainActivity : AppCompatActivity() {
             VideoDisplayMode.valueOf(displayValue ?: VideoDisplayMode.LIST.name)
         } catch (_: IllegalArgumentException) {
             VideoDisplayMode.LIST
+        }
+        tileSpanCount = when (tileSpanValue) {
+            2, 3, 4 -> tileSpanValue
+            else -> 2
         }
         sortMode = try {
             VideoSortMode.valueOf(sortValue ?: VideoSortMode.MODIFIED.name)
@@ -1479,6 +1585,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun saveDisplayMode() {
         preferences.edit().putString(KEY_DISPLAY, videoDisplayMode.name).apply()
+    }
+
+    private fun saveTileSpanCount() {
+        preferences.edit().putInt(KEY_TILE_SPAN, tileSpanCount).apply()
     }
 
     private fun saveSortMode() {
@@ -1538,12 +1648,37 @@ class MainActivity : AppCompatActivity() {
     private fun updateDisplaySelectionUI(
         list: TextView,
         tile: TextView,
+        tileMultipliers: View,
         selectedDisplay: VideoDisplayMode,
         selectedColor: Int,
         defaultColor: Int
     ) {
+        val isTile = selectedDisplay == VideoDisplayMode.TILE
         list.setTextColor(if (selectedDisplay == VideoDisplayMode.LIST) selectedColor else defaultColor)
-        tile.setTextColor(if (selectedDisplay == VideoDisplayMode.TILE) selectedColor else defaultColor)
+        tile.setTextColor(if (isTile) selectedColor else defaultColor)
+        tileMultipliers.visibility = if (isTile) View.VISIBLE else View.GONE
+    }
+
+    private fun updateTileSpanSelectionUI(
+        x2: TextView,
+        x3: TextView,
+        x4: TextView,
+        x2Icon: ImageView,
+        x3Icon: ImageView,
+        x4Icon: ImageView,
+        selectedSpan: Int,
+        selectedColor: Int,
+        defaultColor: Int
+    ) {
+        val x2Selected = selectedSpan == 2
+        val x3Selected = selectedSpan == 3
+        val x4Selected = selectedSpan == 4
+        x2.setTextColor(if (x2Selected) selectedColor else defaultColor)
+        x3.setTextColor(if (x3Selected) selectedColor else defaultColor)
+        x4.setTextColor(if (x4Selected) selectedColor else defaultColor)
+        x2Icon.setColorFilter(if (x2Selected) selectedColor else defaultColor)
+        x3Icon.setColorFilter(if (x3Selected) selectedColor else defaultColor)
+        x4Icon.setColorFilter(if (x4Selected) selectedColor else defaultColor)
     }
 
     private fun updateSortSelectionUI(
@@ -1587,6 +1722,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS = "nsplayer_prefs"
         private const val KEY_MODE = "video_mode"
         private const val KEY_DISPLAY = "video_display"
+        private const val KEY_TILE_SPAN = "video_tile_span"
         private const val KEY_SORT = "video_sort"
         private const val KEY_SORT_ORDER = "video_sort_order"
         private const val KEY_COPY_TREE_URI = "copy_tree_uri"

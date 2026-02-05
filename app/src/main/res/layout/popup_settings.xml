@@ -83,6 +83,104 @@
             android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
     </LinearLayout>
 
+    <LinearLayout
+        android:id="@+id/settingsDisplayTileMultipliers"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/settingsDisplayTileX2Row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="2dp"
+            android:paddingEnd="10dp">
+
+            <ImageView
+                android:id="@+id/settingsDisplayTileX2Icon"
+                android:layout_width="@dimen/multiplier_x_size"
+                android:layout_height="@dimen/multiplier_x_size"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_multiplier_x"
+                android:tint="?attr/colorOnSurface" />
+
+            <TextView
+                android:id="@+id/settingsDisplayTileX2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text="2"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                android:textSize="@dimen/multiplier_text_size" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/settingsDisplayTileX3Row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="2dp"
+            android:paddingEnd="10dp">
+
+            <ImageView
+                android:id="@+id/settingsDisplayTileX3Icon"
+                android:layout_width="@dimen/multiplier_x_size"
+                android:layout_height="@dimen/multiplier_x_size"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_multiplier_x"
+                android:tint="?attr/colorOnSurface" />
+
+            <TextView
+                android:id="@+id/settingsDisplayTileX3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text="3"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                android:textSize="@dimen/multiplier_text_size" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/settingsDisplayTileX4Row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="2dp">
+
+            <ImageView
+                android:id="@+id/settingsDisplayTileX4Icon"
+                android:layout_width="@dimen/multiplier_x_size"
+                android:layout_height="@dimen/multiplier_x_size"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_multiplier_x"
+                android:tint="?attr/colorOnSurface" />
+
+            <TextView
+                android:id="@+id/settingsDisplayTileX4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text="4"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                android:textSize="@dimen/multiplier_text_size" />
+        </LinearLayout>
+    </LinearLayout>
+
     <TextView
         android:id="@+id/sortTitle"
         android:layout_width="wrap_content"
