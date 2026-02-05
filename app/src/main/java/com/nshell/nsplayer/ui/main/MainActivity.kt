@@ -145,22 +145,14 @@ class MainActivity : AppCompatActivity() {
 
         val backButton = findViewById<Button>(R.id.backButton)
         backButton.setOnClickListener {
-            if (browserState.currentMode == VideoMode.HIERARCHY) {
-                if (browserState.hierarchyPath.isNotEmpty()) {
-                    val nextPath = getParentPath(browserState.hierarchyPath)
-                    viewModel.updateState { it.copy(hierarchyPath = nextPath) }
-                    loadIfPermitted()
-                }
+            if (handleBackNavigation()) {
                 return@setOnClickListener
             }
             setMode(VideoMode.FOLDERS)
         }
 
         headerBackButton.setOnClickListener {
-            if (browserState.currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
-                val nextPath = getParentPath(browserState.hierarchyPath)
-                viewModel.updateState { it.copy(hierarchyPath = nextPath) }
-                loadIfPermitted()
+            if (handleBackNavigation()) {
                 return@setOnClickListener
             }
             if (browserState.inFolderVideos) {
@@ -170,18 +162,7 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (selectionController.isSelectionMode()) {
-                    selectionController.clearSelection()
-                    return
-                }
-                if (browserState.currentMode == VideoMode.HIERARCHY && !isHierarchyRoot()) {
-                    val nextPath = getParentPath(browserState.hierarchyPath)
-                    viewModel.updateState { it.copy(hierarchyPath = nextPath) }
-                    loadIfPermitted()
-                    return
-                }
-                if (browserState.inFolderVideos) {
-                    setMode(VideoMode.FOLDERS)
+                if (handleBackNavigation()) {
                     return
                 }
                 isEnabled = false
@@ -899,6 +880,25 @@ class MainActivity : AppCompatActivity() {
             )
         }
         loadIfPermitted()
+    }
+
+    private fun handleBackNavigation(): Boolean {
+        if (selectionController.isSelectionMode()) {
+            selectionController.clearSelection()
+            return true
+        }
+        val current = viewModel.getState().value ?: browserState
+        if (current.currentMode == VideoMode.HIERARCHY && current.hierarchyPath.isNotEmpty()) {
+            val nextPath = getParentPath(current.hierarchyPath)
+            viewModel.updateState { it.copy(hierarchyPath = nextPath) }
+            loadIfPermitted()
+            return true
+        }
+        if (current.inFolderVideos) {
+            setMode(VideoMode.FOLDERS)
+            return true
+        }
+        return false
     }
 
     private fun applyVideoDisplayMode() {
