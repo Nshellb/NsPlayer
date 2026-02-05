@@ -11,7 +11,9 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/settings_title"
-        android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1" />
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
+        android:textStyle="bold"
+        android:textSize="@dimen/settings_popup_title_size" />
 
     <TextView
         android:id="@+id/settingsModeTitle"
@@ -19,7 +21,8 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:text="@string/settings_mode_title"
-        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+        android:textSize="@dimen/settings_popup_section_size" />
 
     <LinearLayout
         android:id="@+id/settingsModeRow"
@@ -34,7 +37,8 @@
             android:layout_height="wrap_content"
             android:paddingEnd="16dp"
             android:text="@string/mode_folders"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
 
         <TextView
             android:id="@+id/settingsModeHierarchy"
@@ -42,15 +46,25 @@
             android:layout_height="wrap_content"
             android:paddingEnd="16dp"
             android:text="@string/mode_hierarchy"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
 
         <TextView
             android:id="@+id/settingsModeVideos"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/mode_videos"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
     </LinearLayout>
+
+    <View
+        android:id="@+id/settingsModeDivider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="6dp"
+        android:background="#E0E0E0" />
 
     <TextView
         android:id="@+id/displayTitle"
@@ -58,7 +72,8 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:text="@string/display_title"
-        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+        android:textSize="@dimen/settings_popup_section_size" />
 
     <LinearLayout
         android:id="@+id/settingsDisplayRow"
@@ -73,14 +88,16 @@
             android:layout_height="wrap_content"
             android:paddingEnd="16dp"
             android:text="@string/mode_list"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
 
         <TextView
             android:id="@+id/settingsDisplayTile"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/mode_tile"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
     </LinearLayout>
 
     <LinearLayout
@@ -181,13 +198,22 @@
         </LinearLayout>
     </LinearLayout>
 
+    <View
+        android:id="@+id/settingsDisplayDivider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="6dp"
+        android:background="#E0E0E0" />
+
     <TextView
         android:id="@+id/sortTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:text="@string/sort_title"
-        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+        android:textSize="@dimen/settings_popup_section_size" />
 
     <LinearLayout
         android:id="@+id/settingsSortRow"
@@ -202,7 +228,8 @@
             android:layout_height="wrap_content"
             android:paddingEnd="16dp"
             android:text="@string/sort_title_item"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
 
         <TextView
             android:id="@+id/settingsSortModified"
@@ -210,7 +237,8 @@
             android:layout_height="wrap_content"
             android:paddingEnd="16dp"
             android:text="@string/sort_modified"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
 
         <TextView
             android:id="@+id/settingsSortDuration"
@@ -218,7 +246,8 @@
             android:layout_height="wrap_content"
             android:paddingEnd="16dp"
             android:text="@string/sort_duration"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
     </LinearLayout>
 
     <LinearLayout
@@ -236,7 +265,8 @@
             android:padding="6dp"
             android:paddingEnd="16dp"
             android:text="@string/sort_asc"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
 
         <TextView
             android:id="@+id/settingsSortDesc"
@@ -245,7 +275,45 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="6dp"
             android:text="@string/sort_desc"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
+    </LinearLayout>
+
+    <View
+        android:id="@+id/settingsSortDivider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="6dp"
+        android:background="#E0E0E0" />
+
+    <LinearLayout
+        android:id="@+id/settingsAdvancedRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="6dp"
+        android:paddingVertical="8dp">
+
+        <TextView
+            android:id="@+id/settingsAdvancedTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/advanced_settings_title"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
+
+        <TextView
+            android:id="@+id/settingsAdvancedChevron"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=">"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textSize="@dimen/settings_popup_option_size" />
     </LinearLayout>
 
     <LinearLayout

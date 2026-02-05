@@ -370,6 +370,7 @@ class MainActivity : AppCompatActivity() {
         val sortDuration = content.findViewById<TextView>(R.id.settingsSortDuration)
         val sortAsc = content.findViewById<TextView>(R.id.settingsSortAsc)
         val sortDesc = content.findViewById<TextView>(R.id.settingsSortDesc)
+        val advancedRow = content.findViewById<View>(R.id.settingsAdvancedRow)
         val cancelButton = content.findViewById<Button>(R.id.settingsCancel)
         val confirmButton = content.findViewById<Button>(R.id.settingsConfirm)
         val defaultColor = modeFolders.currentTextColor
@@ -585,6 +586,11 @@ class MainActivity : AppCompatActivity() {
                 selectedColor,
                 defaultColor
             )
+        }
+
+        advancedRow.setOnClickListener {
+            dialog.dismiss()
+            startActivity(Intent(this, AdvancedSettingsActivity::class.java))
         }
 
         cancelButton.setOnClickListener { dialog.dismiss() }
