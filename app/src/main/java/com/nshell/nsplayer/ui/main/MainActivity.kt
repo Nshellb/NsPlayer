@@ -2,7 +2,6 @@ package com.nshell.nsplayer.ui.main
 
 import android.Manifest
 import android.content.Intent
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -29,7 +28,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.nshell.nsplayer.R
+import com.nshell.nsplayer.data.settings.SettingsState
 import com.nshell.nsplayer.ui.player.PlayerActivity
+import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import com.nshell.nsplayer.ui.settings.advanced.AdvancedSettingsActivity
 import java.text.DateFormat
 import java.util.Date
@@ -49,11 +50,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var selectionDeleteButton: Button
     private lateinit var adapter: VideoListAdapter
     private lateinit var viewModel: VideoBrowserViewModel
+    private lateinit var settingsViewModel: SettingsViewModel
     private lateinit var selectionController: SelectionController
     private lateinit var transferController: TransferController
     private lateinit var list: RecyclerView
     private var browserState = VideoBrowserState()
-    private lateinit var preferences: SharedPreferences
 
     private val copyDestinationLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -100,8 +101,8 @@ class MainActivity : AppCompatActivity() {
         }
         list.adapter = adapter
 
-        preferences = getSharedPreferences(PREFS, MODE_PRIVATE)
         viewModel = ViewModelProvider(this)[VideoBrowserViewModel::class.java]
+        settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
         viewModel.getItems().observe(this) { renderItems(it) }
         viewModel.getLoading().observe(this) { renderLoading(it) }
         viewModel.getState().observe(this) { state ->
@@ -121,12 +122,14 @@ class MainActivity : AppCompatActivity() {
                 updateHeaderState()
             }
         }
-        viewModel.setState(loadPreferences())
+        settingsViewModel.getSettings().observe(this) { settings ->
+            applySettings(settings)
+        }
 
         transferController = TransferController(
             activity = this,
             adapter = adapter,
-            preferences = preferences,
+            preferences = getSharedPreferences(PREFS, MODE_PRIVATE),
             launchCopyDestination = { copyDestinationLauncher.launch(null) },
             launchDeletePermission = { request -> deletePermissionLauncher.launch(request) },
             onReloadRequested = { loadIfPermitted() }
@@ -135,15 +138,6 @@ class MainActivity : AppCompatActivity() {
         selectionMoveButton.setOnClickListener { transferController.startMoveSelected() }
         selectionCopyButton.setOnClickListener { transferController.startCopySelected() }
         selectionDeleteButton.setOnClickListener { transferController.startDeleteSelected() }
-
-        transferController = TransferController(
-            activity = this,
-            adapter = adapter,
-            preferences = preferences,
-            launchCopyDestination = { copyDestinationLauncher.launch(null) },
-            launchDeletePermission = { request -> deletePermissionLauncher.launch(request) },
-            onReloadRequested = { loadIfPermitted() }
-        )
 
         val settingsButton = findViewById<View>(R.id.settingsButton)
         settingsButton.setOnClickListener { showSettingsDialog(it) }
@@ -612,14 +606,14 @@ class MainActivity : AppCompatActivity() {
             val sortChanged = pendingSort != browserState.sortMode
             val orderChanged = pendingOrder != browserState.sortOrder
             if (displayChanged) {
-                saveDisplayMode(pendingDisplay)
+                settingsViewModel.updateDisplayMode(pendingDisplay)
             }
             if (tileSpanChanged) {
-                saveTileSpanCount(pendingTileSpan)
+                settingsViewModel.updateTileSpanCount(pendingTileSpan)
             }
             if (sortChanged || orderChanged) {
-                saveSortMode(pendingSort)
-                saveSortOrder(pendingOrder)
+                settingsViewModel.updateSortMode(pendingSort)
+                settingsViewModel.updateSortOrder(pendingOrder)
             }
             if (displayChanged || tileSpanChanged || sortChanged || orderChanged) {
                 viewModel.updateState {
@@ -632,6 +626,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             if (modeChanged) {
+                settingsViewModel.updateMode(pendingMode)
                 setMode(pendingMode)
             } else if (displayChanged || (tileSpanChanged && pendingDisplay == VideoDisplayMode.TILE)) {
                 applyVideoDisplayMode()
@@ -902,7 +897,6 @@ class MainActivity : AppCompatActivity() {
                 hierarchyPath = if (mode == VideoMode.HIERARCHY) "" else it.hierarchyPath
             )
         }
-        saveMode(mode)
         loadIfPermitted()
     }
 
@@ -916,63 +910,16 @@ class MainActivity : AppCompatActivity() {
         adapter.notifyDataSetChanged()
     }
 
-    private fun loadPreferences(): VideoBrowserState {
-        val modeValue = preferences.getString(KEY_MODE, VideoMode.FOLDERS.name)
-        val displayValue = preferences.getString(KEY_DISPLAY, VideoDisplayMode.LIST.name)
-        val tileSpanValue = preferences.getInt(KEY_TILE_SPAN, 2)
-        val sortValue = preferences.getString(KEY_SORT, VideoSortMode.MODIFIED.name)
-        val sortOrderValue = preferences.getString(KEY_SORT_ORDER, VideoSortOrder.DESC.name)
-        val mode = try {
-            VideoMode.valueOf(modeValue ?: VideoMode.FOLDERS.name)
-        } catch (_: IllegalArgumentException) {
-            VideoMode.FOLDERS
+    private fun applySettings(settings: SettingsState) {
+        viewModel.updateState {
+            it.copy(
+                currentMode = settings.mode,
+                videoDisplayMode = settings.displayMode,
+                tileSpanCount = settings.tileSpanCount,
+                sortMode = settings.sortMode,
+                sortOrder = settings.sortOrder
+            )
         }
-        val displayMode = try {
-            VideoDisplayMode.valueOf(displayValue ?: VideoDisplayMode.LIST.name)
-        } catch (_: IllegalArgumentException) {
-            VideoDisplayMode.LIST
-        }
-        val tileSpan = when (tileSpanValue) {
-            2, 3, 4 -> tileSpanValue
-            else -> 2
-        }
-        val sortMode = try {
-            VideoSortMode.valueOf(sortValue ?: VideoSortMode.MODIFIED.name)
-        } catch (_: IllegalArgumentException) {
-            VideoSortMode.MODIFIED
-        }
-        val sortOrder = try {
-            VideoSortOrder.valueOf(sortOrderValue ?: VideoSortOrder.DESC.name)
-        } catch (_: IllegalArgumentException) {
-            VideoSortOrder.DESC
-        }
-        return VideoBrowserState(
-            currentMode = mode,
-            videoDisplayMode = displayMode,
-            tileSpanCount = tileSpan,
-            sortMode = sortMode,
-            sortOrder = sortOrder
-        )
-    }
-
-    private fun saveMode(mode: VideoMode) {
-        preferences.edit().putString(KEY_MODE, mode.name).apply()
-    }
-
-    private fun saveDisplayMode(displayMode: VideoDisplayMode) {
-        preferences.edit().putString(KEY_DISPLAY, displayMode.name).apply()
-    }
-
-    private fun saveTileSpanCount(tileSpanCount: Int) {
-        preferences.edit().putInt(KEY_TILE_SPAN, tileSpanCount).apply()
-    }
-
-    private fun saveSortMode(sortMode: VideoSortMode) {
-        preferences.edit().putString(KEY_SORT, sortMode.name).apply()
-    }
-
-    private fun saveSortOrder(sortOrder: VideoSortOrder) {
-        preferences.edit().putString(KEY_SORT_ORDER, sortOrder.name).apply()
     }
 
     private fun isHierarchyRoot(): Boolean = browserState.hierarchyPath.isEmpty()
@@ -1096,10 +1043,5 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val REQUEST_PERMISSION = 1001
         private const val PREFS = "nsplayer_prefs"
-        private const val KEY_MODE = "video_mode"
-        private const val KEY_DISPLAY = "video_display"
-        private const val KEY_TILE_SPAN = "video_tile_span"
-        private const val KEY_SORT = "video_sort"
-        private const val KEY_SORT_ORDER = "video_sort_order"
     }
 }
