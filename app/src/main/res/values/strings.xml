@@ -51,6 +51,16 @@
     <string name="advanced_settings_search_folders">검색할 폴더</string>
     <string name="advanced_settings_visible_items">보여질 항목</string>
     <string name="advanced_settings_nomedia">.nomedia 인식</string>
+    <string name="advanced_visible_thumbnail">썸네일</string>
+    <string name="advanced_visible_duration">길이</string>
+    <string name="advanced_visible_extension">파일확장자</string>
+    <string name="advanced_visible_resolution">해상도</string>
+    <string name="advanced_visible_frame_rate">프레임 레이트</string>
+    <string name="advanced_visible_size">크기</string>
+    <string name="advanced_visible_modified">수정된 날짜</string>
+    <string name="search_folders_title">검색할 폴더</string>
+    <string name="search_folders_placeholder">준비중</string>
+    <string name="action_not_ready_long">준비중 입니다.</string>
     <string name="select_all">전체선택</string>
     <string name="move">이동</string>
     <string name="copy">복사</string>
