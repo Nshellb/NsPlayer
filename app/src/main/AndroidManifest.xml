@@ -18,7 +18,7 @@
         android:theme="@style/Theme.NsPlayer">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.main.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -27,16 +27,16 @@
         </activity>
 
         <activity
-            android:name=".PlayerActivity"
+            android:name=".ui.player.PlayerActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
         <activity
-            android:name=".AdvancedSettingsActivity"
+            android:name=".ui.settings.advanced.AdvancedSettingsActivity"
             android:exported="false" />
 
         <activity
-            android:name=".SearchFoldersActivity"
+            android:name=".ui.settings.searchfolders.SearchFoldersActivity"
             android:exported="false" />
     </application>
 

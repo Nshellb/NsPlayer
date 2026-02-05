@@ -1,4 +1,4 @@
-package com.nshell.nsplayer.ui
+package com.nshell.nsplayer.ui.main
 
 data class DisplayItem(
     val type: Type,

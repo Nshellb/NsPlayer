@@ -1,4 +1,4 @@
-package com.nshell.nsplayer
+package com.nshell.nsplayer.ui.player
 
 import android.content.Context
 import android.content.pm.ActivityInfo
@@ -18,6 +18,7 @@ import android.widget.ImageButton
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.nshell.nsplayer.R
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat

@@ -1,10 +1,11 @@
-package com.nshell.nsplayer
+package com.nshell.nsplayer.ui.settings.searchfolders
 
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.nshell.nsplayer.R
 
 class SearchFoldersActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

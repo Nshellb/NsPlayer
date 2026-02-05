@@ -1,14 +1,14 @@
-package com.nshell.nsplayer.data
+package com.nshell.nsplayer.data.repository
 
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.database.Cursor
 import android.net.Uri
 import android.provider.MediaStore
-import com.nshell.nsplayer.ui.DisplayItem
-import com.nshell.nsplayer.ui.VideoMode
-import com.nshell.nsplayer.ui.VideoSortMode
-import com.nshell.nsplayer.ui.VideoSortOrder
+import com.nshell.nsplayer.ui.main.DisplayItem
+import com.nshell.nsplayer.ui.main.VideoMode
+import com.nshell.nsplayer.ui.main.VideoSortMode
+import com.nshell.nsplayer.ui.main.VideoSortOrder
 import java.util.Locale
 
 class MediaStoreVideoRepository : VideoRepository {

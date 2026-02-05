@@ -1,4 +1,4 @@
-package com.nshell.nsplayer
+package com.nshell.nsplayer.ui.main
 
 import android.Manifest
 import android.content.Intent
@@ -31,13 +31,9 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.documentfile.provider.DocumentFile
 import android.widget.ProgressBar
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.nshell.nsplayer.ui.DisplayItem
-import com.nshell.nsplayer.ui.VideoBrowserViewModel
-import com.nshell.nsplayer.ui.VideoDisplayMode
-import com.nshell.nsplayer.ui.VideoListAdapter
-import com.nshell.nsplayer.ui.VideoMode
-import com.nshell.nsplayer.ui.VideoSortMode
-import com.nshell.nsplayer.ui.VideoSortOrder
+import com.nshell.nsplayer.R
+import com.nshell.nsplayer.ui.player.PlayerActivity
+import com.nshell.nsplayer.ui.settings.advanced.AdvancedSettingsActivity
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale

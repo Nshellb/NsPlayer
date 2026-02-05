@@ -1,11 +1,11 @@
-package com.nshell.nsplayer.ui
+package com.nshell.nsplayer.ui.main
 
 import android.content.ContentResolver
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import com.nshell.nsplayer.data.MediaStoreVideoRepository
-import com.nshell.nsplayer.data.VideoRepository
+import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
+import com.nshell.nsplayer.data.repository.VideoRepository
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 

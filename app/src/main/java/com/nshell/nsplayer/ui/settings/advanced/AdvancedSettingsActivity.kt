@@ -1,4 +1,4 @@
-package com.nshell.nsplayer
+package com.nshell.nsplayer.ui.settings.advanced
 
 import android.content.Intent
 import android.os.Bundle
@@ -8,6 +8,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.nshell.nsplayer.R
+import com.nshell.nsplayer.ui.settings.searchfolders.SearchFoldersActivity
 
 class AdvancedSettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
