@@ -166,6 +166,10 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
     class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val title: TextView? = itemView.findViewById(R.id.title)
         val subtitle: TextView? = itemView.findViewById(R.id.subtitle)
+        val subtitleRow: View? = itemView.findViewById(R.id.subtitleRow)
+        val durationText: TextView? = itemView.findViewById(R.id.durationText)
+        val resolutionText: TextView? = itemView.findViewById(R.id.resolutionText)
+        val subtitleDivider: View? = itemView.findViewById(R.id.subtitleDivider)
         val thumbnail: ImageView? = itemView.findViewById(R.id.thumbnail)
         val folderIcon: ImageView? = itemView.findViewById(R.id.folderIcon)
         val overflowButton: ImageView? = itemView.findViewById(R.id.overflowButton)
@@ -182,6 +186,7 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
             holder.subtitle?.text = subtitle
             holder.subtitle?.visibility = View.VISIBLE
         }
+        holder.subtitleRow?.visibility = View.GONE
 
         holder.overflowButton?.setOnClickListener {
             overflowClickListener?.onOverflowClick(item)
@@ -221,8 +226,7 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
     private fun bindVideo(holder: ViewHolder, item: DisplayItem) {
         holder.title?.text = item.title
         holder.title?.setTextColor(holder.defaultTitleColor)
-        holder.subtitle?.text = formatDetails(item)
-        holder.subtitle?.visibility = View.VISIBLE
+        bindSubtitle(holder, item)
 
         holder.overflowButton?.setOnClickListener {
             overflowClickListener?.onOverflowClick(item)
@@ -245,16 +249,20 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         holder.itemView.setPadding(basePadding, basePadding, basePadding, basePadding)
     }
 
-    private fun formatDetails(item: DisplayItem): String {
+    private fun bindSubtitle(holder: ViewHolder, item: DisplayItem) {
         val duration = formatDuration(item.durationMs)
-        var resolution = ""
-        if (item.width > 0 && item.height > 0) {
-            resolution = "${item.width}x${item.height}"
+        val resolution = if (item.width > 0 && item.height > 0) {
+            "${item.width}x${item.height}"
+        } else {
+            ""
         }
-        if (resolution.isNotEmpty()) {
-            return String.format(Locale.US, "%s ??%s", duration, resolution)
-        }
-        return duration
+        holder.subtitle?.visibility = View.GONE
+        holder.subtitleRow?.visibility = View.VISIBLE
+        holder.durationText?.text = duration
+        holder.resolutionText?.text = resolution
+        val hasResolution = resolution.isNotEmpty()
+        holder.subtitleDivider?.visibility = if (hasResolution) View.VISIBLE else View.GONE
+        holder.resolutionText?.visibility = if (hasResolution) View.VISIBLE else View.GONE
     }
 
     private fun formatDuration(durationMs: Long): String {
