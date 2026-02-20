@@ -268,15 +268,15 @@ class PlayerActivity : BaseActivity() {
         playerView.player = player
         player?.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                updatePlayPauseIcon(isPlaying)
+                updatePlaybackUi()
             }
 
             override fun onIsLoadingChanged(isLoading: Boolean) {
-                updateLoadingState(isLoading, player?.playbackState)
+                updatePlaybackUi()
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                updateLoadingState(player?.isLoading == true, state)
+                updatePlaybackUi()
                 if (state == Player.STATE_READY) {
                     updateProgress(player?.currentPosition ?: 0, player?.duration ?: C.TIME_UNSET)
                     maybeShowResumePrompt()
@@ -284,11 +284,7 @@ class PlayerActivity : BaseActivity() {
             }
 
             override fun onPlayerErrorChanged(error: PlaybackException?) {
-                if (error != null) {
-                    showPlaybackError(error)
-                } else {
-                    clearPlaybackError()
-                }
+                updatePlaybackUi(error)
             }
         })
 
@@ -841,12 +837,6 @@ class PlayerActivity : BaseActivity() {
         showOverlay()
     }
 
-    private fun updateLoadingState(isLoading: Boolean, playbackState: Int?) {
-        val buffering = playbackState == Player.STATE_BUFFERING
-        val show = isLoading || buffering
-        loadingSpinner.visibility = if (show) View.VISIBLE else View.GONE
-    }
-
     private fun showPlaybackError(error: PlaybackException) {
         val reason = error.message?.trim().orEmpty()
         errorText.text = if (reason.isNotEmpty()) {
@@ -862,6 +852,19 @@ class PlayerActivity : BaseActivity() {
 
     private fun clearPlaybackError() {
         errorText.visibility = View.GONE
+    }
+
+    private fun updatePlaybackUi(explicitError: PlaybackException? = null) {
+        val activePlayer = player ?: return
+        val error = explicitError ?: activePlayer.playerError
+        if (error != null) {
+            showPlaybackError(error)
+        } else {
+            clearPlaybackError()
+        }
+        val buffering = activePlayer.playbackState == Player.STATE_BUFFERING || activePlayer.isLoading
+        loadingSpinner.visibility = if (buffering && error == null) View.VISIBLE else View.GONE
+        updatePlayPauseIcon(activePlayer.isPlaying)
     }
 
     private fun loadPlaybackSpeed() {
