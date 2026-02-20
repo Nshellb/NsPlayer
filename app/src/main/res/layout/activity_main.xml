@@ -98,14 +98,15 @@
         android:padding="12dp"
         android:visibility="gone">
 
-        <Button
+        <ImageButton
             android:id="@+id/selectionAllButton"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:text="@string/select_all"
-            android:textColor="@color/white" />
+            android:contentDescription="@string/select_all"
+            android:src="@drawable/ic_select_all"
+            android:tint="@color/white" />
 
         <Button
             android:id="@+id/selectionMoveButton"

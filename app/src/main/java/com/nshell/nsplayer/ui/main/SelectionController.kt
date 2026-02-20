@@ -1,11 +1,11 @@
 package com.nshell.nsplayer.ui.main
 
 import android.view.View
-import android.widget.Button
+import android.widget.ImageButton
 
 class SelectionController(
     private val selectionBar: View,
-    private val selectionAllButton: Button,
+    private val selectionAllButton: ImageButton,
     private val adapter: VideoListAdapter
 ) {
     fun bind() {

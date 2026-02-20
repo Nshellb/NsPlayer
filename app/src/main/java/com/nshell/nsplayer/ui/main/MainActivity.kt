@@ -13,6 +13,7 @@ import android.provider.MediaStore
 import android.text.format.Formatter
 import android.view.View
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.RadioGroup
@@ -49,7 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var headerBackButton: View
     private lateinit var titleText: TextView
     private lateinit var selectionBar: View
-    private lateinit var selectionAllButton: Button
+    private lateinit var selectionAllButton: ImageButton
     private lateinit var selectionMoveButton: Button
     private lateinit var selectionCopyButton: Button
     private lateinit var selectionDeleteButton: Button
