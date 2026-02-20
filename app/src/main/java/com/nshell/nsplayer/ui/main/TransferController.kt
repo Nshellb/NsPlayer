@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.text.format.Formatter
 import android.util.Log
@@ -26,7 +27,7 @@ class TransferController(
     private val activity: AppCompatActivity,
     private val adapter: VideoListAdapter,
     private val preferences: SharedPreferences,
-    private val launchCopyDestination: () -> Unit,
+    private val launchCopyDestination: (Uri?) -> Unit,
     private val launchDeletePermission: (IntentSenderRequest) -> Unit,
     private val onReloadRequested: () -> Unit
 ) {
@@ -65,7 +66,7 @@ class TransferController(
         }
         pendingCopyItems = videos
         pendingOperation = TransferOperation.COPY
-        launchCopyDestination()
+        launchCopyDestination(buildInitialCopyTreeUri(videos))
     }
 
     fun startMoveSelected() {
@@ -81,7 +82,7 @@ class TransferController(
         }
         pendingCopyItems = videos
         pendingOperation = TransferOperation.MOVE
-        launchCopyDestination()
+        launchCopyDestination(buildInitialCopyTreeUri(videos))
     }
 
     fun startDeleteSelected() {
@@ -713,23 +714,68 @@ class TransferController(
         return ConflictDecision(choice, applyAll)
     }
 
-    private fun getSavedTreeUri(): Uri? {
-        val value = preferences.getString(KEY_COPY_TREE_URI, null) ?: return null
+    private data class VolumePath(
+        val volumeName: String,
+        val relativePath: String
+    )
+
+    private fun buildInitialCopyTreeUri(items: List<DisplayItem>): Uri? {
+        val source = items.firstOrNull() ?: return null
+        val srcUri = source.contentUri?.let { Uri.parse(it) } ?: return null
+        val volumePath = queryVolumePath(srcUri) ?: return null
+        val documentVolume = resolveDocumentVolumeName(volumePath.volumeName) ?: return null
+        val relative = normalizeRelativeDocPath(volumePath.relativePath)
+        val docId = if (relative.isEmpty()) "$documentVolume:" else "$documentVolume:$relative"
         return try {
-            Uri.parse(value)
+            DocumentsContract.buildTreeDocumentUri(EXTERNAL_STORAGE_AUTHORITY, docId)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun hasPersistedTreePermission(uri: Uri): Boolean {
-        val target = uri.toString()
-        return activity.contentResolver.persistedUriPermissions.any { perm ->
-            perm.isWritePermission && perm.uri.toString() == target
+    private fun queryVolumePath(uri: Uri): VolumePath? {
+        val projection = arrayOf(
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            MediaStore.MediaColumns.VOLUME_NAME
+        )
+        activity.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val relCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
+                val volumeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.VOLUME_NAME)
+                val relative = cursor.getString(relCol) ?: ""
+                val volume = cursor.getString(volumeCol)
+                return VolumePath(resolveVolumeName(volume), relative)
+            }
+        }
+        return null
+    }
+
+    private fun resolveVolumeName(volumeName: String?): String {
+        return if (volumeName.isNullOrEmpty()) {
+            MediaStore.VOLUME_EXTERNAL_PRIMARY
+        } else {
+            volumeName
         }
     }
 
+    private fun resolveDocumentVolumeName(volumeName: String): String? {
+        return when (volumeName) {
+            MediaStore.VOLUME_EXTERNAL_PRIMARY, MediaStore.VOLUME_EXTERNAL -> "primary"
+            else -> volumeName
+        }
+    }
+
+    private fun normalizeRelativeDocPath(path: String?): String {
+        if (path.isNullOrEmpty()) {
+            return ""
+        }
+        var normalized = path.replace('\\', '/').trim()
+        normalized = normalized.trim('/')
+        return normalized
+    }
+
     companion object {
+        private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
         private const val KEY_COPY_TREE_URI = "copy_tree_uri"
         private const val PROGRESS_MAX = 1000
         private const val PROGRESS_UPDATE_MS = 200L

@@ -171,7 +171,7 @@ class MainActivity : AppCompatActivity() {
             activity = this,
             adapter = adapter,
             preferences = getSharedPreferences(PREFS, MODE_PRIVATE),
-            launchCopyDestination = { copyDestinationLauncher.launch(null) },
+            launchCopyDestination = { uri -> copyDestinationLauncher.launch(uri) },
             launchDeletePermission = { request -> deletePermissionLauncher.launch(request) },
             onReloadRequested = { loadIfPermitted() }
         )
@@ -251,7 +251,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             statusText.text = getString(R.string.permission_needed)
             statusText.visibility = View.VISIBLE
-            requestVideoPermission()
+            requestMediaPermissions()
         }
     }
 
@@ -264,13 +264,28 @@ class MainActivity : AppCompatActivity() {
         return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun requestVideoPermission() {
+    private fun requestMediaPermissions() {
         val permissions = if (Build.VERSION.SDK_INT >= 33) {
-            arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
+            val requested = mutableListOf(
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_AUDIO,
+                Manifest.permission.READ_MEDIA_IMAGES
+            )
+            requested.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }.toTypedArray()
         } else {
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                emptyArray()
+            } else {
+                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
         }
-        ActivityCompat.requestPermissions(this, permissions, REQUEST_PERMISSION)
+        if (permissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, permissions, REQUEST_PERMISSION)
+        }
     }
 
     private fun renderItems(items: List<DisplayItem>?) {
@@ -302,7 +317,7 @@ class MainActivity : AppCompatActivity() {
         if (requestCode != REQUEST_PERMISSION) {
             return
         }
-        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        if (hasVideoPermission()) {
             loadIfPermitted()
         } else {
             statusText.text = getString(R.string.permission_denied)
@@ -1300,7 +1315,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             statusText.text = getString(R.string.permission_needed)
             statusText.visibility = View.VISIBLE
-            requestVideoPermission()
+            requestMediaPermissions()
         }
     }
 

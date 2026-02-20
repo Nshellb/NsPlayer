@@ -63,7 +63,9 @@
         android:layout_marginTop="16dp"
         android:indeterminate="false"
         android:max="100"
-        android:progress="0" />
+        android:progress="0"
+        android:progressTint="@color/brand_green"
+        android:indeterminateTint="@color/brand_green" />
 
     <Button
         android:id="@+id/copyProgressCancel"
