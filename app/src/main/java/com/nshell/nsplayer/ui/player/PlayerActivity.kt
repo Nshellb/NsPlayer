@@ -33,6 +33,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -56,6 +57,8 @@ class PlayerActivity : BaseActivity() {
     private lateinit var subtitleButton: ImageButton
     private lateinit var speedButton: TextView
     private lateinit var resumeButton: TextView
+    private lateinit var loadingSpinner: View
+    private lateinit var errorText: TextView
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private val progressUpdater = object : Runnable {
@@ -141,6 +144,8 @@ class PlayerActivity : BaseActivity() {
         subtitleButton = findViewById(R.id.subtitleButton)
         speedButton = findViewById(R.id.speedButton)
         resumeButton = findViewById(R.id.resumeButton)
+        loadingSpinner = findViewById(R.id.loadingSpinner)
+        errorText = findViewById(R.id.errorText)
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager?
         if (audioManager != null) {
@@ -262,10 +267,23 @@ class PlayerActivity : BaseActivity() {
                 updatePlayPauseIcon(isPlaying)
             }
 
+            override fun onIsLoadingChanged(isLoading: Boolean) {
+                updateLoadingState(isLoading, player?.playbackState)
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
+                updateLoadingState(player?.isLoading == true, state)
                 if (state == Player.STATE_READY) {
                     updateProgress(player?.currentPosition ?: 0, player?.duration ?: C.TIME_UNSET)
                     maybeShowResumePrompt()
+                }
+            }
+
+            override fun onPlayerErrorChanged(error: PlaybackException?) {
+                if (error != null) {
+                    showPlaybackError(error)
+                } else {
+                    clearPlaybackError()
                 }
             }
         })
@@ -809,6 +827,29 @@ class PlayerActivity : BaseActivity() {
         clearResumePosition()
         player?.seekTo(0L)
         showOverlay()
+    }
+
+    private fun updateLoadingState(isLoading: Boolean, playbackState: Int?) {
+        val buffering = playbackState == Player.STATE_BUFFERING
+        val show = isLoading || buffering
+        loadingSpinner.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    private fun showPlaybackError(error: PlaybackException) {
+        val reason = error.message?.trim().orEmpty()
+        errorText.text = if (reason.isNotEmpty()) {
+            getString(R.string.playback_error_with_reason, reason)
+        } else {
+            getString(R.string.playback_error)
+        }
+        errorText.visibility = View.VISIBLE
+        loadingSpinner.visibility = View.GONE
+        overlayContainer.visibility = View.VISIBLE
+        uiHandler.removeCallbacks(hideOverlayRunnable)
+    }
+
+    private fun clearPlaybackError() {
+        errorText.visibility = View.GONE
     }
 
     private fun loadPlaybackSpeed() {

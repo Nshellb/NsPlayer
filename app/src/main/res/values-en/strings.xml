@@ -57,6 +57,8 @@
     <string name="playback_speed">Playback speed</string>
     <string name="resume_playback">Resuming playback</string>
     <string name="resume_from_start">Play from start</string>
+    <string name="playback_error">Unable to play this video.</string>
+    <string name="playback_error_with_reason">Unable to play this video. (%1$s)</string>
     <string name="property_unknown">Unknown</string>
     <string name="property_root">Root</string>
     <string name="property_close">OK</string>
