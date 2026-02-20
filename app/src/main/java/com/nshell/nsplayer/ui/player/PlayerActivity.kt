@@ -55,6 +55,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var gestureText: TextView
     private lateinit var subtitleButton: ImageButton
     private lateinit var speedButton: TextView
+    private lateinit var resumeButton: TextView
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private val progressUpdater = object : Runnable {
@@ -67,6 +68,7 @@ class PlayerActivity : BaseActivity() {
     }
     private val hideOverlayRunnable = Runnable { overlayContainer.visibility = View.GONE }
     private val hideGestureTextRunnable = Runnable { gestureText.visibility = View.GONE }
+    private val hideResumeButtonRunnable = Runnable { resumeButton.visibility = View.GONE }
 
     private var isScrubbing = false
     private lateinit var gestureDetector: GestureDetector
@@ -92,6 +94,7 @@ class PlayerActivity : BaseActivity() {
     private var subtitleDialogSelectValue: TextView? = null
     private var subtitleDialogEnableSwitch: SwitchCompat? = null
     private var playbackSpeed = 1.0f
+    private var pendingResumePrompt = false
 
     private val subtitlePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -137,6 +140,7 @@ class PlayerActivity : BaseActivity() {
         gestureText = findViewById(R.id.gestureText)
         subtitleButton = findViewById(R.id.subtitleButton)
         speedButton = findViewById(R.id.speedButton)
+        resumeButton = findViewById(R.id.resumeButton)
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager?
         if (audioManager != null) {
@@ -150,6 +154,7 @@ class PlayerActivity : BaseActivity() {
         rotateButton.setOnClickListener { toggleOrientation() }
         subtitleButton.setOnClickListener { showSubtitleSettingsDialog() }
         speedButton.setOnClickListener { showSpeedDialog() }
+        resumeButton.setOnClickListener { restartFromBeginning() }
 
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
@@ -228,6 +233,8 @@ class PlayerActivity : BaseActivity() {
         uiHandler.removeCallbacks(progressUpdater)
         uiHandler.removeCallbacks(hideOverlayRunnable)
         uiHandler.removeCallbacks(hideGestureTextRunnable)
+        uiHandler.removeCallbacks(hideResumeButtonRunnable)
+        saveResumePosition()
         releasePlayer()
         clearSubtitleCache()
     }
@@ -258,11 +265,17 @@ class PlayerActivity : BaseActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     updateProgress(player?.currentPosition ?: 0, player?.duration ?: C.TIME_UNSET)
+                    maybeShowResumePrompt()
                 }
             }
         })
 
-        player?.setMediaItem(buildMediaItem())
+        val resumePosition = resolveResumePosition()
+        if (resumePosition > 0L) {
+            player?.setMediaItem(buildMediaItem(), resumePosition)
+        } else {
+            player?.setMediaItem(buildMediaItem())
+        }
         player?.prepare()
         applySubtitleEnabled(subtitleEnabled)
         applyPlaybackSpeed()
@@ -721,6 +734,83 @@ class PlayerActivity : BaseActivity() {
         updateSubtitleButtonState()
     }
 
+    private fun resolveResumePosition(): Long {
+        val info = loadResumeInfo() ?: return 0L
+        if (info.positionMs < RESUME_MIN_SAVE_MS) {
+            clearResumePosition()
+            return 0L
+        }
+        if (info.durationMs > 0L && info.positionMs >= info.durationMs - RESUME_END_THRESHOLD_MS) {
+            clearResumePosition()
+            return 0L
+        }
+        pendingResumePrompt = true
+        return (info.positionMs - RESUME_BACK_MS).coerceAtLeast(0L)
+    }
+
+    private fun loadResumeInfo(): ResumeInfo? {
+        val key = resumePositionKey(videoUri)
+        val position = subtitlePreferences.getLong(key, -1L)
+        if (position <= 0L) {
+            return null
+        }
+        val duration = subtitlePreferences.getLong(resumeDurationKey(videoUri), -1L)
+        return ResumeInfo(position, duration)
+    }
+
+    private fun saveResumePosition() {
+        val activePlayer = player ?: return
+        val position = activePlayer.currentPosition
+        if (position < RESUME_MIN_SAVE_MS) {
+            clearResumePosition()
+            return
+        }
+        val duration = activePlayer.duration
+        if (duration != C.TIME_UNSET && duration > 0L &&
+            position >= duration - RESUME_END_THRESHOLD_MS
+        ) {
+            clearResumePosition()
+            return
+        }
+        subtitlePreferences.edit()
+            .putLong(resumePositionKey(videoUri), position)
+            .putLong(resumeDurationKey(videoUri), if (duration == C.TIME_UNSET) 0L else duration)
+            .apply()
+    }
+
+    private fun clearResumePosition() {
+        subtitlePreferences.edit()
+            .remove(resumePositionKey(videoUri))
+            .remove(resumeDurationKey(videoUri))
+            .apply()
+    }
+
+    private fun resumePositionKey(uri: Uri): String = KEY_RESUME_PREFIX + uri.toString()
+
+    private fun resumeDurationKey(uri: Uri): String = KEY_RESUME_DURATION_PREFIX + uri.toString()
+
+    private fun maybeShowResumePrompt() {
+        if (!pendingResumePrompt) {
+            return
+        }
+        pendingResumePrompt = false
+        showResumeButton()
+    }
+
+    private fun showResumeButton() {
+        resumeButton.visibility = View.VISIBLE
+        uiHandler.removeCallbacks(hideResumeButtonRunnable)
+        uiHandler.postDelayed(hideResumeButtonRunnable, RESUME_PROMPT_MS)
+    }
+
+    private fun restartFromBeginning() {
+        uiHandler.removeCallbacks(hideResumeButtonRunnable)
+        resumeButton.visibility = View.GONE
+        clearResumePosition()
+        player?.seekTo(0L)
+        showOverlay()
+    }
+
     private fun loadPlaybackSpeed() {
         val saved = subtitlePreferences.getFloat(KEY_PLAYBACK_SPEED, 1.0f)
         playbackSpeed = saved.coerceIn(0.5f, 4.0f)
@@ -771,6 +861,11 @@ class PlayerActivity : BaseActivity() {
         }
         return "${label}x"
     }
+
+    private data class ResumeInfo(
+        val positionMs: Long,
+        val durationMs: Long
+    )
 
     private fun updateSubtitleButtonState() {
         val active = subtitleEnabled
@@ -1051,9 +1146,15 @@ class PlayerActivity : BaseActivity() {
         private const val KEY_SUBTITLE_MIME = "subtitle_mime"
         private const val KEY_SUBTITLE_EXT = "subtitle_ext"
         private const val KEY_PLAYBACK_SPEED = "playback_speed"
+        private const val KEY_RESUME_PREFIX = "resume_pos_"
+        private const val KEY_RESUME_DURATION_PREFIX = "resume_dur_"
         private const val ENCODING_UTF8 = "UTF-8"
         private const val ENCODING_EUC_KR = "EUC-KR"
         private const val ENCODING_CP949 = "CP949"
+        private const val RESUME_MIN_SAVE_MS = 2_000L
+        private const val RESUME_END_THRESHOLD_MS = 2_000L
+        private const val RESUME_BACK_MS = 1_500L
+        private const val RESUME_PROMPT_MS = 2_500L
         private val SUBTITLE_MIME_TYPES = arrayOf(
             "text/*",
             "application/x-subrip",
