@@ -9,7 +9,10 @@ import androidx.core.content.ContextCompat
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.data.settings.SettingsState
 
-internal fun MainActivity.loadIfPermitted() {
+internal fun MainActivity.loadIfPermitted(
+    useCache: Boolean = false,
+    showRefreshing: Boolean = false
+) {
     val current = viewModel.getState().value ?: browserState
     if (hasVideoPermission()) {
         when {
@@ -17,25 +20,34 @@ internal fun MainActivity.loadIfPermitted() {
                 current.hierarchyPath,
                 current.sortMode,
                 current.sortOrder,
-                contentResolver
+                contentResolver,
+                useCache,
+                showRefreshing
             )
             current.inFolderVideos && current.selectedBucketId != null ->
                 viewModel.loadFolderVideos(
                     current.selectedBucketId!!,
                     current.sortMode,
                     current.sortOrder,
-                    contentResolver
+                    contentResolver,
+                    useCache,
+                    showRefreshing
                 )
             else -> viewModel.load(
                 current.currentMode,
                 current.sortMode,
                 current.sortOrder,
-                contentResolver
+                contentResolver,
+                useCache,
+                showRefreshing
             )
         }
     } else {
         statusText.text = getString(R.string.permission_needed)
         statusText.visibility = View.VISIBLE
+        if (showRefreshing) {
+            viewModel.setRefreshing(false)
+        }
         requestMediaPermissions()
     }
 }
@@ -112,26 +124,13 @@ internal fun MainActivity.applySettings(settings: SettingsState) {
     }
     if (!initialSettingsApplied) {
         initialSettingsApplied = true
-        loadWithSettings(settings)
+        loadWithSettings()
     }
 }
 
-internal fun MainActivity.loadWithSettings(settings: SettingsState) {
+internal fun MainActivity.loadWithSettings() {
     if (hasVideoPermission()) {
-        when (settings.mode) {
-            VideoMode.HIERARCHY -> viewModel.loadHierarchy(
-                "",
-                settings.sortMode,
-                settings.sortOrder,
-                contentResolver
-            )
-            else -> viewModel.load(
-                settings.mode,
-                settings.sortMode,
-                settings.sortOrder,
-                contentResolver
-            )
-        }
+        loadIfPermitted(useCache = true, showRefreshing = true)
     } else {
         statusText.text = getString(R.string.permission_needed)
         statusText.visibility = View.VISIBLE

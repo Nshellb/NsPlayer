@@ -15,6 +15,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 
@@ -36,6 +37,7 @@ class MainActivity : BaseActivity() {
     internal lateinit var selectionController: SelectionController
     internal lateinit var transferController: TransferController
     internal lateinit var list: RecyclerView
+    internal lateinit var refreshLayout: SwipeRefreshLayout
     internal var browserState = VideoBrowserState()
     internal var initialSettingsApplied = false
     internal var pendingRename: RenameRequest? = null
@@ -111,6 +113,8 @@ class MainActivity : BaseActivity() {
         selectionDeleteButton = findViewById(R.id.selectionDeleteButton)
 
         list = findViewById(R.id.list)
+        refreshLayout = findViewById(R.id.refreshLayout)
+        refreshLayout.setColorSchemeResources(R.color.brand_green)
         list.isVerticalScrollBarEnabled = true
         list.isScrollbarFadingEnabled = true
         list.scrollBarDefaultDelayBeforeFade = 600
@@ -125,11 +129,17 @@ class MainActivity : BaseActivity() {
             selectionController.onSelectionChanged(selectionMode)
         }
         list.adapter = adapter
+        refreshLayout.setOnRefreshListener {
+            loadIfPermitted(useCache = false, showRefreshing = true)
+        }
 
         viewModel = ViewModelProvider(this)[VideoBrowserViewModel::class.java]
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
         viewModel.getItems().observe(this) { renderItems(it) }
         viewModel.getLoading().observe(this) { renderLoading(it) }
+        viewModel.getRefreshing().observe(this) { refreshing ->
+            refreshLayout.isRefreshing = refreshing == true
+        }
         viewModel.getState().observe(this) { state ->
             val previous = browserState
             browserState = state
