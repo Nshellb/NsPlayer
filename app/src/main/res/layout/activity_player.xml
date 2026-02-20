@@ -100,6 +100,19 @@
                     android:textSize="14sp"
                     android:text="00:00" />
 
+                <TextView
+                    android:id="@+id/speedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/playback_speed"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="4dp"
+                    android:text="1.0x"
+                    android:textColor="@android:color/white"
+                    android:textSize="13sp" />
+
                 <ImageButton
                     android:id="@+id/subtitleButton"
                     android:layout_width="36dp"

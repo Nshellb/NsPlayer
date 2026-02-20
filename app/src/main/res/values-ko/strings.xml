@@ -54,6 +54,7 @@
     <string name="subtitle_encoding_utf8">UTF-8</string>
     <string name="subtitle_encoding_euc_kr">EUC-KR</string>
     <string name="subtitle_encoding_cp949">CP949</string>
+    <string name="playback_speed">재생 속도</string>
     <string name="property_unknown">알 수 없음</string>
     <string name="property_root">Root</string>
     <string name="property_close">확인</string>

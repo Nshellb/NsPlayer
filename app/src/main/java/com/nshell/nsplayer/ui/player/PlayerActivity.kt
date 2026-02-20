@@ -33,6 +33,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -53,6 +54,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var titleText: TextView
     private lateinit var gestureText: TextView
     private lateinit var subtitleButton: ImageButton
+    private lateinit var speedButton: TextView
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private val progressUpdater = object : Runnable {
@@ -89,6 +91,7 @@ class PlayerActivity : BaseActivity() {
     private var subtitleCacheFile: File? = null
     private var subtitleDialogSelectValue: TextView? = null
     private var subtitleDialogEnableSwitch: SwitchCompat? = null
+    private var playbackSpeed = 1.0f
 
     private val subtitlePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -133,6 +136,7 @@ class PlayerActivity : BaseActivity() {
         titleText = findViewById(R.id.titleText)
         gestureText = findViewById(R.id.gestureText)
         subtitleButton = findViewById(R.id.subtitleButton)
+        speedButton = findViewById(R.id.speedButton)
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager?
         if (audioManager != null) {
@@ -145,6 +149,7 @@ class PlayerActivity : BaseActivity() {
         playPauseButton.setOnClickListener { togglePlayback() }
         rotateButton.setOnClickListener { toggleOrientation() }
         subtitleButton.setOnClickListener { showSubtitleSettingsDialog() }
+        speedButton.setOnClickListener { showSpeedDialog() }
 
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
@@ -200,8 +205,10 @@ class PlayerActivity : BaseActivity() {
             titleText.text = title
         }
         loadSubtitlePreferences()
+        loadPlaybackSpeed()
         subtitleCandidates = loadSubtitleCandidates(videoUri)
         updateSubtitleButtonState()
+        updateSpeedButtonLabel()
         if (userOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
             requestedOrientation = userOrientation
         } else {
@@ -258,6 +265,7 @@ class PlayerActivity : BaseActivity() {
         player?.setMediaItem(buildMediaItem())
         player?.prepare()
         applySubtitleEnabled(subtitleEnabled)
+        applyPlaybackSpeed()
         player?.play()
         updatePlayPauseIcon(true)
     }
@@ -456,11 +464,10 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun hideSystemUi() {
-        val controller = ViewCompat.getWindowInsetsController(window.decorView)
-        controller?.hide(WindowInsetsCompat.Type.systemBars())
-        controller?.setSystemBarsBehavior(
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        )
     }
 
     private fun applyAutoOrientation(uri: Uri) {
@@ -712,6 +719,57 @@ class PlayerActivity : BaseActivity() {
             .build()
         activePlayer.trackSelectionParameters = updated
         updateSubtitleButtonState()
+    }
+
+    private fun loadPlaybackSpeed() {
+        val saved = subtitlePreferences.getFloat(KEY_PLAYBACK_SPEED, 1.0f)
+        playbackSpeed = saved.coerceIn(0.5f, 4.0f)
+    }
+
+    private fun persistPlaybackSpeed() {
+        subtitlePreferences.edit()
+            .putFloat(KEY_PLAYBACK_SPEED, playbackSpeed)
+            .apply()
+    }
+
+    private fun applyPlaybackSpeed() {
+        updateSpeedButtonLabel()
+        val activePlayer = player ?: return
+        activePlayer.setPlaybackParameters(PlaybackParameters(playbackSpeed, 1.0f))
+    }
+
+    private fun setPlaybackSpeed(speed: Float) {
+        playbackSpeed = speed.coerceIn(0.5f, 4.0f)
+        persistPlaybackSpeed()
+        applyPlaybackSpeed()
+        showOverlay()
+    }
+
+    private fun showSpeedDialog() {
+        val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f, 4.0f)
+        val labels = speeds.map { formatSpeedLabel(it) }.toTypedArray()
+        val checked = speeds.indexOfFirst { kotlin.math.abs(it - playbackSpeed) < 0.01f }
+            .takeIf { it >= 0 } ?: 2
+        AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
+            .setTitle(R.string.playback_speed)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                setPlaybackSpeed(speeds[which])
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun updateSpeedButtonLabel() {
+        speedButton.text = formatSpeedLabel(playbackSpeed)
+    }
+
+    private fun formatSpeedLabel(speed: Float): String {
+        val label = if (speed % 1f == 0f) {
+            String.format(Locale.US, "%.1f", speed)
+        } else {
+            String.format(Locale.US, "%.2f", speed).trimEnd('0').trimEnd('.')
+        }
+        return "${label}x"
     }
 
     private fun updateSubtitleButtonState() {
@@ -992,6 +1050,7 @@ class PlayerActivity : BaseActivity() {
         private const val KEY_SUBTITLE_LABEL = "subtitle_label"
         private const val KEY_SUBTITLE_MIME = "subtitle_mime"
         private const val KEY_SUBTITLE_EXT = "subtitle_ext"
+        private const val KEY_PLAYBACK_SPEED = "playback_speed"
         private const val ENCODING_UTF8 = "UTF-8"
         private const val ENCODING_EUC_KR = "EUC-KR"
         private const val ENCODING_CP949 = "CP949"

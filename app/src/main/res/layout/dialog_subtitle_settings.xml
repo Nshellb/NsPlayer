@@ -22,7 +22,8 @@
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/subtitleEnableSwitch"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:theme="@style/ThemeOverlay.NsPlayer.Dialog" />
     </LinearLayout>
 
     <View
