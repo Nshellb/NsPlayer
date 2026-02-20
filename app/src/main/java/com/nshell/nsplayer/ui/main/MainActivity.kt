@@ -119,6 +119,7 @@ class MainActivity : BaseActivity() {
         list.isScrollbarFadingEnabled = true
         list.scrollBarDefaultDelayBeforeFade = 600
         list.scrollBarFadeDuration = 350
+        list.itemAnimator = null
         list.layoutManager = LinearLayoutManager(this)
         adapter = VideoListAdapter()
         selectionController = SelectionController(selectionBar, selectionAllButton, adapter)

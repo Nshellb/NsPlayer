@@ -8,19 +8,23 @@ import com.nshell.nsplayer.NsPlayerApp
 import com.nshell.nsplayer.data.cache.VideoListCache
 import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
 import com.nshell.nsplayer.data.repository.VideoRepository
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class VideoBrowserViewModel : ViewModel() {
-    private val items = MutableLiveData<List<DisplayItem>>(emptyList())
+    private val items = MutableLiveData<List<DisplayItem>?>(null)
     private val loading = MutableLiveData(false)
     private val refreshing = MutableLiveData(false)
     private val state = MutableLiveData(VideoBrowserState())
     private val repository: VideoRepository = MediaStoreVideoRepository()
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val cacheExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val prefetchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val cache: VideoListCache? = NsPlayerApp.appContext()?.let { VideoListCache(it) }
+    private val requestCounter = AtomicLong(0L)
 
-    fun getItems(): LiveData<List<DisplayItem>> = items
+    fun getItems(): LiveData<List<DisplayItem>?> = items
 
     fun getLoading(): LiveData<Boolean> = loading
 
@@ -53,9 +57,12 @@ class VideoBrowserViewModel : ViewModel() {
             bucketId = null,
             hierarchyPath = null
         )
-        loadInternal(key, useCache, showRefreshing) {
-            repository.load(mode, sortMode, sortOrder, resolver)
-        }
+        loadInternal(
+            key,
+            useCache,
+            showRefreshing,
+            loader = { repository.load(mode, sortMode, sortOrder, resolver) }
+        )
     }
 
     fun loadFolderVideos(
@@ -74,9 +81,12 @@ class VideoBrowserViewModel : ViewModel() {
             bucketId = bucketId,
             hierarchyPath = null
         )
-        loadInternal(key, useCache, showRefreshing) {
-            repository.loadVideosInFolder(bucketId, sortMode, sortOrder, resolver)
-        }
+        loadInternal(
+            key,
+            useCache,
+            showRefreshing,
+            loader = { repository.loadVideosInFolder(bucketId, sortMode, sortOrder, resolver) }
+        )
     }
 
     fun loadHierarchy(
@@ -95,9 +105,15 @@ class VideoBrowserViewModel : ViewModel() {
             bucketId = null,
             hierarchyPath = path
         )
-        loadInternal(key, useCache, showRefreshing) {
-            repository.loadHierarchy(path, sortMode, sortOrder, resolver)
-        }
+        loadInternal(
+            key,
+            useCache,
+            showRefreshing,
+            loader = { repository.loadHierarchy(path, sortMode, sortOrder, resolver) },
+            prefetch = { items, requestId ->
+                prefetchHierarchyChildren(items, sortMode, sortOrder, resolver, requestId)
+            }
+        )
     }
 
     fun setRefreshing(value: Boolean) {
@@ -108,32 +124,98 @@ class VideoBrowserViewModel : ViewModel() {
         key: VideoListCache.Key,
         useCache: Boolean,
         showRefreshing: Boolean,
-        loader: () -> List<DisplayItem>
+        loader: () -> List<DisplayItem>,
+        prefetch: ((List<DisplayItem>, Long) -> Unit)? = null
     ) {
-        if (showRefreshing) {
+        val requestId = requestCounter.incrementAndGet()
+        if (showRefreshing && !useCache) {
             refreshing.value = true
         } else if (!useCache) {
             loading.value = true
         }
-        executor.execute {
-            if (useCache) {
+        if (useCache) {
+            cacheExecutor.execute {
                 val cached = cache?.read(key)
                 if (!cached.isNullOrEmpty()) {
-                    items.postValue(cached)
-                } else if (!showRefreshing) {
-                    loading.postValue(true)
+                    if (requestId == requestCounter.get()) {
+                        items.postValue(cached)
+                        if (showRefreshing) {
+                            refreshing.postValue(false)
+                        } else {
+                            loading.postValue(false)
+                        }
+                    }
+                } else if (requestId == requestCounter.get()) {
+                    if (showRefreshing) {
+                        refreshing.postValue(true)
+                    } else {
+                        loading.postValue(true)
+                    }
                 }
             }
+        }
+        executor.execute {
             val result = loader()
             cache?.write(key, result)
-            items.postValue(result)
-            loading.postValue(false)
-            refreshing.postValue(false)
+            if (requestId == requestCounter.get()) {
+                items.postValue(result)
+                loading.postValue(false)
+                refreshing.postValue(false)
+                prefetch?.invoke(result, requestId)
+            }
         }
     }
 
     override fun onCleared() {
         super.onCleared()
         executor.shutdown()
+        cacheExecutor.shutdown()
+        prefetchExecutor.shutdown()
+    }
+
+    private fun prefetchHierarchyChildren(
+        items: List<DisplayItem>,
+        sortMode: VideoSortMode,
+        sortOrder: VideoSortOrder,
+        resolver: ContentResolver,
+        requestId: Long
+    ) {
+        val childPaths = items.asSequence()
+            .filter { it.type == DisplayItem.Type.HIERARCHY }
+            .mapNotNull { it.bucketId?.takeIf { id -> id.isNotEmpty() } }
+            .distinct()
+            .take(PREFETCH_LIMIT)
+            .toList()
+        if (childPaths.isEmpty()) {
+            return
+        }
+        prefetchExecutor.execute {
+            if (requestId != requestCounter.get()) {
+                return@execute
+            }
+            for (path in childPaths) {
+                if (requestId != requestCounter.get()) {
+                    break
+                }
+                val key = VideoListCache.Key(
+                    queryType = VideoListCache.QueryType.HIERARCHY,
+                    mode = VideoMode.HIERARCHY,
+                    sortMode = sortMode,
+                    sortOrder = sortOrder,
+                    bucketId = null,
+                    hierarchyPath = path
+                )
+                val cached = cache?.read(key)
+                if (!cached.isNullOrEmpty()) {
+                    continue
+                }
+                val result = repository.loadHierarchy(path, sortMode, sortOrder, resolver)
+                cache?.write(key, result)
+            }
+        }
+    }
+
+    companion object {
+        private const val PREFETCH_LIMIT = 6
     }
 }

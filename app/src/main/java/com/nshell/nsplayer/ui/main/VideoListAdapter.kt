@@ -14,6 +14,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.nshell.nsplayer.R
@@ -22,7 +24,8 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
-class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
+class VideoListAdapter :
+    ListAdapter<DisplayItem, VideoListAdapter.ViewHolder>(DIFF_CALLBACK) {
     fun interface OnItemClickListener {
         fun onItemClick(item: DisplayItem)
     }
@@ -35,7 +38,6 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         fun onSelectionChanged(selectedCount: Int, selectionMode: Boolean)
     }
 
-    private val items = mutableListOf<DisplayItem>()
     private val selectedPositions = mutableSetOf<Int>()
     private var videoDisplayMode = VideoDisplayMode.LIST
     private var clickListener: OnItemClickListener? = null
@@ -50,12 +52,12 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
     )
 
     fun submit(nextItems: List<DisplayItem>?) {
-        items.clear()
-        if (nextItems != null) {
-            items.addAll(nextItems)
-        }
+        val hadSelection = selectedPositions.isNotEmpty()
         clearSelectionInternal()
-        notifyDataSetChanged()
+        if (hadSelection) {
+            notifyDataSetChanged()
+        }
+        submitList(nextItems?.toList() ?: emptyList())
     }
 
     fun setVideoDisplayMode(mode: VideoDisplayMode?) {
@@ -95,19 +97,21 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
 
     fun getSelectedCount(): Int = selectedPositions.size
 
-    fun isAllSelected(): Boolean = items.isNotEmpty() && selectedPositions.size == items.size
+    fun isAllSelected(): Boolean =
+        currentList.isNotEmpty() && selectedPositions.size == currentList.size
 
     fun getSelectedItems(): List<DisplayItem> {
         if (selectedPositions.isEmpty()) {
             return emptyList()
         }
+        val items = currentList
         return selectedPositions.sorted().mapNotNull { index -> items.getOrNull(index) }
     }
 
     fun selectAll() {
         selectionMode = true
         selectedPositions.clear()
-        for (i in items.indices) {
+        for (i in currentList.indices) {
             selectedPositions.add(i)
         }
         notifySelectionChanged()
@@ -152,7 +156,7 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val item = items[position]
+        val item = getItem(position)
         holder.itemView.setOnClickListener {
             if (selectionMode) {
                 val adapterPosition = holder.bindingAdapterPosition
@@ -184,10 +188,8 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         )
     }
 
-    override fun getItemCount(): Int = items.size
-
     override fun getItemViewType(position: Int): Int {
-        val item = items[position]
+        val item = getItem(position)
         if (item.type == DisplayItem.Type.VIDEO) {
             return if (videoDisplayMode == VideoDisplayMode.TILE) VIEW_TYPE_VIDEO_TILE else VIEW_TYPE_VIDEO_LIST
         }
@@ -493,6 +495,25 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         private const val VIEW_TYPE_VIDEO_LIST = 1
         private const val VIEW_TYPE_VIDEO_TILE = 2
         private const val VIEW_TYPE_TILE_DEFAULT = 3
+        private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<DisplayItem>() {
+            override fun areItemsTheSame(oldItem: DisplayItem, newItem: DisplayItem): Boolean {
+                if (oldItem.type != newItem.type) {
+                    return false
+                }
+                return when (oldItem.type) {
+                    DisplayItem.Type.VIDEO -> {
+                        val oldUri = oldItem.contentUri
+                        val newUri = newItem.contentUri
+                        !oldUri.isNullOrEmpty() && oldUri == newUri
+                    }
+                    else -> oldItem.bucketId == newItem.bucketId && oldItem.title == newItem.title
+                }
+            }
+
+            override fun areContentsTheSame(oldItem: DisplayItem, newItem: DisplayItem): Boolean {
+                return oldItem == newItem
+            }
+        }
 
         private fun dpToPx(view: View, dp: Int): Int {
             val density = view.resources.displayMetrics.density

@@ -13,7 +13,7 @@ internal fun MainActivity.onItemSelected(item: DisplayItem) {
                     inFolderVideos = true
                 )
             }
-            loadIfPermitted()
+            loadIfPermitted(useCache = true)
         }
         DisplayItem.Type.HIERARCHY -> {
             viewModel.updateState {
@@ -24,7 +24,7 @@ internal fun MainActivity.onItemSelected(item: DisplayItem) {
                     selectedBucketName = null
                 )
             }
-            loadIfPermitted()
+            loadIfPermitted(useCache = true)
         }
         DisplayItem.Type.VIDEO -> {
             val uri = item.contentUri
@@ -61,7 +61,7 @@ internal fun MainActivity.handleBackNavigation(): Boolean {
     if (current.currentMode == VideoMode.HIERARCHY && current.hierarchyPath.isNotEmpty()) {
         val nextPath = getParentPath(current.hierarchyPath)
         viewModel.updateState { it.copy(hierarchyPath = nextPath) }
-        loadIfPermitted()
+        loadIfPermitted(useCache = true)
         return true
     }
     if (current.inFolderVideos) {

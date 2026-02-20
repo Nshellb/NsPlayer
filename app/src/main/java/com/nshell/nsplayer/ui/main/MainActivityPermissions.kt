@@ -92,8 +92,12 @@ internal fun MainActivity.requestMediaPermissions() {
 }
 
 internal fun MainActivity.renderItems(items: List<DisplayItem>?) {
+    if (items == null) {
+        emptyText.visibility = View.GONE
+        return
+    }
     adapter.submit(items)
-    val isEmpty = items.isNullOrEmpty()
+    val isEmpty = items.isEmpty()
     emptyText.visibility = if (isEmpty) View.VISIBLE else View.GONE
 }
 

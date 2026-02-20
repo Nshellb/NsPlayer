@@ -51,7 +51,11 @@ class MediaStoreVideoRepository : VideoRepository {
         sortOrder: VideoSortOrder,
         resolver: ContentResolver
     ): List<DisplayItem> {
-        val entries = queryVideos(resolver)
+        val entries = if (path.isEmpty()) {
+            queryVideos(resolver)
+        } else {
+            queryVideosForHierarchy(path, resolver)
+        }
         val enriched = attachSubtitleInfo(entries, resolver)
         return buildHierarchyLevelItems(enriched, path, sortMode, sortOrder)
     }
@@ -59,7 +63,13 @@ class MediaStoreVideoRepository : VideoRepository {
     private fun queryVideos(resolver: ContentResolver): MutableList<VideoEntry> =
         queryVideosInternal(null, resolver)
 
-    private fun queryVideosInternal(bucketId: String?, resolver: ContentResolver): MutableList<VideoEntry> {
+    private fun queryVideosInternal(
+        bucketId: String?,
+        resolver: ContentResolver,
+        contentUri: Uri? = null,
+        selectionOverride: String? = null,
+        selectionArgsOverride: Array<String>? = null
+    ): MutableList<VideoEntry> {
         val entries = mutableListOf<VideoEntry>()
         val projection = mutableListOf(
             MediaStore.Video.Media._ID,
@@ -79,9 +89,18 @@ class MediaStoreVideoRepository : VideoRepository {
             projection.add(MediaStore.Video.Media.CAPTURE_FRAMERATE)
         }
         val sortOrder = MediaStore.Video.Media.DATE_ADDED + " DESC"
-        val selection = if (bucketId != null) "${MediaStore.Video.Media.BUCKET_ID}=?" else null
-        val selectionArgs = if (bucketId != null) arrayOf(bucketId) else null
-        resolver.query(VIDEOS_URI, projection.toTypedArray(), selection, selectionArgs, sortOrder)?.use { cursor ->
+        val selection = when {
+            selectionOverride != null -> selectionOverride
+            bucketId != null -> "${MediaStore.Video.Media.BUCKET_ID}=?"
+            else -> null
+        }
+        val selectionArgs = when {
+            selectionOverride != null -> selectionArgsOverride
+            bucketId != null -> arrayOf(bucketId)
+            else -> null
+        }
+        val targetUri = contentUri ?: VIDEOS_URI
+        resolver.query(targetUri, projection.toTypedArray(), selection, selectionArgs, sortOrder)?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
             val bucketIdCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_ID)
@@ -129,6 +148,35 @@ class MediaStoreVideoRepository : VideoRepository {
         }
         Log.d(logTag, "MediaStore query done. entries=${entries.size}")
         return entries
+    }
+
+    private fun queryVideosForHierarchy(path: String, resolver: ContentResolver): MutableList<VideoEntry> {
+        val volumePath = parseVolumePath(path)
+        val volumeName = volumePath?.volumeName
+        val relative = volumePath?.relativePath ?: path
+        val normalized = normalizePath(relative)
+        val uri = if (!volumeName.isNullOrEmpty()) {
+            MediaStore.Video.Media.getContentUri(volumeName)
+        } else {
+            VIDEOS_URI
+        }
+        val selection = if (normalized.isNotEmpty()) {
+            "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
+        } else {
+            null
+        }
+        val selectionArgs = if (normalized.isNotEmpty()) {
+            arrayOf("$normalized%")
+        } else {
+            null
+        }
+        return queryVideosInternal(
+            bucketId = null,
+            resolver = resolver,
+            contentUri = uri,
+            selectionOverride = selection,
+            selectionArgsOverride = selectionArgs
+        )
     }
 
     private fun buildVideoItems(entries: List<VideoEntry>): List<DisplayItem> {
