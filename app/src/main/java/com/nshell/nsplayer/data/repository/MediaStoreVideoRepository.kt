@@ -1,10 +1,11 @@
-package com.nshell.nsplayer.data.repository
+﻿package com.nshell.nsplayer.data.repository
 
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.database.Cursor
 import android.net.Uri
 import android.provider.MediaStore
+import android.util.Log
 import com.nshell.nsplayer.ui.main.DisplayItem
 import com.nshell.nsplayer.ui.main.VideoMode
 import com.nshell.nsplayer.ui.main.VideoSortMode
@@ -12,6 +13,7 @@ import com.nshell.nsplayer.ui.main.VideoSortOrder
 import java.util.Locale
 
 class MediaStoreVideoRepository : VideoRepository {
+    private val logTag = "NsPlayerStorage"
     override fun load(
         mode: VideoMode,
         sortMode: VideoSortMode,
@@ -62,8 +64,8 @@ class MediaStoreVideoRepository : VideoRepository {
             MediaStore.Video.Media.WIDTH,
             MediaStore.Video.Media.HEIGHT,
             MediaStore.Video.Media.RELATIVE_PATH,
-            MediaStore.Video.Media.DATE_ADDED,
-            MediaStore.Video.Media.DATE_MODIFIED
+            MediaStore.Video.Media.DATE_MODIFIED,
+            MediaStore.Video.Media.VOLUME_NAME
         )
         val sortOrder = MediaStore.Video.Media.DATE_ADDED + " DESC"
         val selection = if (bucketId != null) "${MediaStore.Video.Media.BUCKET_ID}=?" else null
@@ -78,8 +80,11 @@ class MediaStoreVideoRepository : VideoRepository {
             val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
             val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.RELATIVE_PATH)
             val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_MODIFIED)
+            val volumeCol = cursor.getColumnIndex(MediaStore.Video.Media.VOLUME_NAME)
 
             while (cursor.moveToNext()) {
+                val rawVolume = if (volumeCol >= 0) cursor.getString(volumeCol) else null
+                val relPath = cursor.getString(pathCol)
                 entries.add(
                     VideoEntry(
                         id = cursor.getLong(idCol),
@@ -89,12 +94,20 @@ class MediaStoreVideoRepository : VideoRepository {
                         duration = cursor.getLong(durationCol),
                         width = cursor.getInt(widthCol),
                         height = cursor.getInt(heightCol),
-                        relativePath = cursor.getString(pathCol),
-                        modifiedSeconds = cursor.getLong(modifiedCol)
+                        relativePath = relPath,
+                        modifiedSeconds = cursor.getLong(modifiedCol),
+                        volumeName = rawVolume
                     )
                 )
+                if (entries.size <= 10) {
+                    Log.d(
+                        logTag,
+                        "MediaStore entry volume=$rawVolume, relPath=$relPath, name=${cursor.getString(nameCol)}"
+                    )
+                }
             }
         }
+        Log.d(logTag, "MediaStore query done. entries=${entries.size}")
         return entries
     }
 
@@ -139,15 +152,21 @@ class MediaStoreVideoRepository : VideoRepository {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder
     ): List<DisplayItem> {
-        val normalizedPath = normalizePath(currentPath)
+        if (currentPath.isEmpty()) {
+            return buildVolumeRootItems(entries)
+        }
+        val volumePath = parseVolumePath(currentPath)
+        val normalizedPath = if (volumePath == null) normalizePath(currentPath) else normalizePath(volumePath.relativePath)
         val folders = mutableMapOf<String, FolderAggregate>()
         val videos = mutableListOf<VideoEntry>()
+        val basePrefix = if (volumePath == null) "" else "$VOLUME_PREFIX${volumePath.volumeName}/"
 
         for (entry in entries) {
-            var path = normalizePath(entry.relativePath)
-            if (path.isEmpty()) {
-                path = normalizePath(safe(entry.bucketName, "Unknown"))
+            val entryVolume = resolveVolumeName(entry.volumeName)
+            if (volumePath != null && entryVolume != volumePath.volumeName) {
+                continue
             }
+            var path = entryPath(entry)
             if (!path.startsWith(normalizedPath)) {
                 continue
             }
@@ -161,7 +180,7 @@ class MediaStoreVideoRepository : VideoRepository {
             if (childName.isEmpty()) {
                 continue
             }
-            val childPath = normalizedPath + childName + "/"
+            val childPath = basePrefix + normalizedPath + childName + "/"
             val aggregate = folders.getOrPut(childPath) { FolderAggregate(childPath, childName) }
             aggregate.count++
             var childRemainder = remainder.substring(childName.length)
@@ -220,7 +239,8 @@ class MediaStoreVideoRepository : VideoRepository {
         val width: Int,
         val height: Int,
         val relativePath: String?,
-        val modifiedSeconds: Long
+        val modifiedSeconds: Long,
+        val volumeName: String?
     )
 
     private fun buildVideoItem(entry: VideoEntry): DisplayItem {
@@ -245,6 +265,82 @@ class MediaStoreVideoRepository : VideoRepository {
             normalized += "/"
         }
         return normalized
+    }
+
+    private fun entryPath(entry: VideoEntry): String {
+        val relative = normalizePath(entry.relativePath)
+        if (relative.isNotEmpty()) {
+            return relative
+        }
+        val bucket = normalizePath(safe(entry.bucketName, "Unknown"))
+        return bucket
+    }
+
+    private fun buildVolumeRootItems(entries: List<VideoEntry>): List<DisplayItem> {
+        val volumes = mutableMapOf<String, FolderAggregate>()
+        for (entry in entries) {
+            val volumeName = resolveVolumeName(entry.volumeName)
+            val label = buildVolumeLabel(volumeName)
+            val key = "$VOLUME_PREFIX$volumeName/"
+            val aggregate = volumes.getOrPut(key) { FolderAggregate(key, label) }
+            val path = entryPath(entry)
+            val remainder = path
+            if (remainder.isEmpty()) {
+                aggregate.directVideoCount++
+                continue
+            }
+            val slash = remainder.indexOf('/')
+            val childName = if (slash >= 0) remainder.substring(0, slash) else remainder
+            if (childName.isNotEmpty()) {
+                aggregate.directSubfolders.add(childName)
+            }
+        }
+        val sorted = volumes.values.sortedBy { it.name.lowercase(Locale.US) }
+        return sorted.map { aggregate ->
+            DisplayItem(
+                DisplayItem.Type.HIERARCHY,
+                aggregate.name,
+                formatCountSubtitle(aggregate.directVideoCount, aggregate.directSubfolders.size),
+                0,
+                aggregate.bucketId
+            )
+        }
+    }
+
+    private data class VolumePath(
+        val volumeName: String,
+        val relativePath: String
+    )
+
+    private fun parseVolumePath(path: String): VolumePath? {
+        if (!path.startsWith(VOLUME_PREFIX)) {
+            return null
+        }
+        val rest = path.removePrefix(VOLUME_PREFIX)
+        val slash = rest.indexOf('/')
+        if (slash < 0) {
+            return VolumePath(rest, "")
+        }
+        val volume = rest.substring(0, slash)
+        val rel = rest.substring(slash + 1)
+        return VolumePath(volume, rel)
+    }
+
+    private fun resolveVolumeName(name: String?): String {
+        return if (name.isNullOrEmpty()) {
+            MediaStore.VOLUME_EXTERNAL_PRIMARY
+        } else {
+            name
+        }
+    }
+
+    private fun buildVolumeLabel(volumeName: String): String {
+        Log.d(logTag, "Build volume label for volumeName=$volumeName")
+        return if (volumeName == MediaStore.VOLUME_EXTERNAL_PRIMARY) {
+            "내장 스토리지"
+        } else {
+            "외장 스토리지 ($volumeName)"
+        }
     }
 
     private fun sortEntries(
@@ -273,5 +369,12 @@ class MediaStoreVideoRepository : VideoRepository {
 
     companion object {
         private val VIDEOS_URI: Uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        private const val VOLUME_PREFIX = "volume:"
     }
 }
+
+
+
+
+
+

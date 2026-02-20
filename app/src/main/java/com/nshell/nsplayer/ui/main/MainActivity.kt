@@ -1,4 +1,4 @@
-package com.nshell.nsplayer.ui.main
+﻿package com.nshell.nsplayer.ui.main
 
 import android.Manifest
 import android.app.Activity
@@ -800,7 +800,7 @@ class MainActivity : AppCompatActivity() {
         return if (item.type == DisplayItem.Type.VIDEO) {
             val meta = queryVideoMetadata(item.contentUri)
             val fullName = meta?.displayName ?: item.title
-            val location = meta?.relativePath ?: getString(R.string.property_unknown)
+            val location = buildLocationLabel(meta?.volumeName, meta?.relativePath)
             val size = if (meta != null) {
                 Formatter.formatFileSize(this, meta.sizeBytes)
             } else {
@@ -809,11 +809,6 @@ class MainActivity : AppCompatActivity() {
             val modified = meta?.modifiedSeconds?.takeIf { it > 0 }
                 ?.let { formatModifiedDate(it) }
                 ?: getString(R.string.property_unknown)
-            val subtitle = if (meta != null && hasSubtitle(meta.relativePath, meta.displayName)) {
-                getString(R.string.property_subtitle_yes)
-            } else {
-                getString(R.string.property_subtitle_no)
-            }
             ItemProperties(
                 title = item.title,
                 typeLabel = typeLabel,
@@ -821,14 +816,15 @@ class MainActivity : AppCompatActivity() {
                 location = location,
                 size = size,
                 modified = modified,
-                subtitle = subtitle
+                subtitle = getString(R.string.property_subtitle_na)
             )
         } else {
             val folderInfo = queryFolderInfo(item)
             val location = when {
                 item.type == DisplayItem.Type.HIERARCHY && item.bucketId.isNullOrEmpty() ->
                     getString(R.string.property_root)
-                item.type == DisplayItem.Type.HIERARCHY -> item.bucketId ?: getString(R.string.property_unknown)
+                item.type == DisplayItem.Type.HIERARCHY ->
+                    buildLocationLabel(folderInfo?.volumeName, folderInfo?.relativePath)
                 else -> folderInfo?.relativePath ?: getString(R.string.property_unknown)
             }
             val size = folderInfo?.sizeBytes?.takeIf { it > 0 }
@@ -852,14 +848,14 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
-
     private fun queryVideoMetadata(contentUri: String?): VideoMeta? {
         val uri = contentUri?.let { Uri.parse(it) } ?: return null
         val projection = arrayOf(
             MediaStore.Video.Media.DISPLAY_NAME,
             MediaStore.Video.Media.RELATIVE_PATH,
             MediaStore.Video.Media.SIZE,
-            MediaStore.Video.Media.DATE_MODIFIED
+            MediaStore.Video.Media.DATE_MODIFIED,
+            MediaStore.Video.Media.VOLUME_NAME
         )
         contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
             if (!cursor.moveToFirst()) {
@@ -869,16 +865,17 @@ class MainActivity : AppCompatActivity() {
             val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.RELATIVE_PATH)
             val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
             val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_MODIFIED)
+            val volumeCol = cursor.getColumnIndex(MediaStore.Video.Media.VOLUME_NAME)
             return VideoMeta(
                 displayName = cursor.getString(nameCol) ?: "",
                 relativePath = cursor.getString(pathCol) ?: "",
                 sizeBytes = cursor.getLong(sizeCol),
-                modifiedSeconds = cursor.getLong(modifiedCol)
+                modifiedSeconds = cursor.getLong(modifiedCol),
+                volumeName = if (volumeCol >= 0) cursor.getString(volumeCol) else null
             )
         }
         return null
     }
-
     private fun resolveRenameInput(input: String, originalName: String): String {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
@@ -936,7 +933,7 @@ class MainActivity : AppCompatActivity() {
     private fun resolveFolderRelativePath(item: DisplayItem): String? {
         return when (item.type) {
             DisplayItem.Type.FOLDER -> queryFolderInfo(item)?.relativePath
-            DisplayItem.Type.HIERARCHY -> item.bucketId
+            DisplayItem.Type.HIERARCHY -> stripVolumePrefix(item.bucketId)
             else -> null
         }?.trim()
     }
@@ -1013,6 +1010,62 @@ class MainActivity : AppCompatActivity() {
         return null
     }
 
+    private fun stripVolumePrefix(path: String?): String? {
+        if (path.isNullOrEmpty()) {
+            return null
+        }
+        if (!path.startsWith(VOLUME_PREFIX)) {
+            return path
+        }
+        val rest = path.removePrefix(VOLUME_PREFIX)
+        val slash = rest.indexOf('/')
+        if (slash < 0) {
+            return ""
+        }
+        return rest.substring(slash + 1)
+    }
+
+    private data class VolumePath(
+        val volumeName: String,
+        val relativePath: String
+    )
+
+    private fun parseVolumePath(path: String?): VolumePath? {
+        if (path.isNullOrEmpty() || !path.startsWith(VOLUME_PREFIX)) {
+            return null
+        }
+        val rest = path.removePrefix(VOLUME_PREFIX)
+        val slash = rest.indexOf('/')
+        if (slash < 0) {
+            return VolumePath(rest, "")
+        }
+        val volume = rest.substring(0, slash)
+        val rel = rest.substring(slash + 1)
+        return VolumePath(volume, rel)
+    }
+
+    private fun buildVolumeLabel(volumeName: String?): String {
+        val resolved = if (volumeName.isNullOrEmpty()) {
+            MediaStore.VOLUME_EXTERNAL_PRIMARY
+        } else {
+            volumeName
+        }
+        return if (resolved == MediaStore.VOLUME_EXTERNAL_PRIMARY) {
+            "내장 스토리지"
+        } else {
+            "외장 스토리지 ($resolved)"
+        }
+    }
+
+    private fun buildLocationLabel(volumeName: String?, relativePath: String?): String {
+        val path = relativePath?.trim()?.trimStart('/') ?: ""
+        val base = buildVolumeLabel(volumeName)
+        if (path.isEmpty()) {
+            return base
+        }
+        return "$base / $path"
+    }
+
     private fun getSavedFolderRenameTreeUri(): Uri? {
         val value = preferences.getString(KEY_FOLDER_RENAME_TREE_URI, null) ?: return null
         return try {
@@ -1037,6 +1090,8 @@ class MainActivity : AppCompatActivity() {
         )
         var selection: String? = null
         var selectionArgs: Array<String>? = null
+        var volumeName: String? = null
+        var contentUri: Uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         when (item.type) {
             DisplayItem.Type.FOLDER -> {
                 val bucketId = item.bucketId ?: return null
@@ -1044,10 +1099,17 @@ class MainActivity : AppCompatActivity() {
                 selectionArgs = arrayOf(bucketId)
             }
             DisplayItem.Type.HIERARCHY -> {
-                val path = item.bucketId ?: ""
-                if (path.isNotEmpty()) {
+                val rawPath = item.bucketId ?: ""
+                val parsed = parseVolumePath(rawPath)
+                volumeName = parsed?.volumeName
+                if (!volumeName.isNullOrEmpty()) {
+                    contentUri = MediaStore.Video.Media.getContentUri(volumeName!!)
+                }
+                val relPath = parsed?.relativePath ?: stripVolumePrefix(rawPath)
+                if (!relPath.isNullOrEmpty()) {
+                    val normalized = if (relPath.endsWith("/")) relPath else "$relPath/"
                     selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
-                    selectionArgs = arrayOf("$path%")
+                    selectionArgs = arrayOf("$normalized%")
                 }
             }
             else -> return null
@@ -1056,7 +1118,7 @@ class MainActivity : AppCompatActivity() {
         var sizeTotal = 0L
         var latestModified = 0L
         contentResolver.query(
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            contentUri,
             projection,
             selection,
             selectionArgs,
@@ -1079,9 +1141,8 @@ class MainActivity : AppCompatActivity() {
         if (relativePath == null && item.type == DisplayItem.Type.HIERARCHY) {
             relativePath = item.bucketId
         }
-        return FolderMeta(relativePath, sizeTotal, latestModified)
+        return FolderMeta(relativePath, sizeTotal, latestModified, volumeName)
     }
-
     private fun hasSubtitle(relativePath: String?, displayName: String?): Boolean {
         if (relativePath.isNullOrEmpty() || displayName.isNullOrEmpty()) {
             return false
@@ -1132,13 +1193,15 @@ class MainActivity : AppCompatActivity() {
         val displayName: String,
         val relativePath: String,
         val sizeBytes: Long,
-        val modifiedSeconds: Long
+        val modifiedSeconds: Long,
+        val volumeName: String?
     )
 
     private data class FolderMeta(
         val relativePath: String?,
         val sizeBytes: Long,
-        val modifiedSeconds: Long
+        val modifiedSeconds: Long,
+        val volumeName: String?
     )
 
     private data class RenameRequest(
@@ -1245,6 +1308,20 @@ class MainActivity : AppCompatActivity() {
     private fun getHierarchyTitle(): String {
         if (browserState.hierarchyPath.isEmpty()) {
             return "Root"
+        }
+        if (browserState.hierarchyPath.startsWith(VOLUME_PREFIX)) {
+            val rest = stripVolumePrefix(browserState.hierarchyPath) ?: ""
+            val volume = browserState.hierarchyPath.removePrefix(VOLUME_PREFIX).substringBefore("/")
+            if (rest.isEmpty()) {
+                return buildVolumeLabel(volume)
+            }
+            val trimmed = if (rest.endsWith("/")) rest.substring(0, rest.length - 1) else rest
+            val lastSlash = trimmed.lastIndexOf('/')
+            return if (lastSlash >= 0 && lastSlash < trimmed.length - 1) {
+                trimmed.substring(lastSlash + 1)
+            } else {
+                trimmed
+            }
         }
         var trimmed = browserState.hierarchyPath
         if (trimmed.endsWith("/")) {
@@ -1362,5 +1439,6 @@ class MainActivity : AppCompatActivity() {
         private const val REQUEST_PERMISSION = 1001
         private const val PREFS = "nsplayer_prefs"
         private const val KEY_FOLDER_RENAME_TREE_URI = "folder_rename_tree_uri"
+        private const val VOLUME_PREFIX = "volume:"
     }
 }
