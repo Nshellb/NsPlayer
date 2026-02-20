@@ -3,24 +3,29 @@ package com.nshell.nsplayer.ui.settings.advanced
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.AdapterView
 import android.widget.CheckBox
-import android.widget.RadioGroup
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.NsPlayerApp
 import com.nshell.nsplayer.data.settings.ThemeMode
+import com.nshell.nsplayer.data.settings.SettingsState
+import com.nshell.nsplayer.ui.base.BaseActivity
 import com.nshell.nsplayer.data.settings.VisibleItem
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import com.nshell.nsplayer.ui.settings.searchfolders.SearchFoldersActivity
 
-class AdvancedSettingsActivity : AppCompatActivity() {
+class AdvancedSettingsActivity : BaseActivity() {
     private lateinit var settingsViewModel: SettingsViewModel
     private var updating = false
+    private val languageTags = listOf<String?>(null, "ko", "en")
+    private var currentSettings: SettingsState? = null
+    private var pendingLanguageRecreate = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,18 +47,59 @@ class AdvancedSettingsActivity : AppCompatActivity() {
 
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
 
-        val themeGroup = findViewById<RadioGroup>(R.id.advancedThemeGroup)
-        themeGroup.setOnCheckedChangeListener { _, checkedId ->
-            if (updating) {
-                return@setOnCheckedChangeListener
+        val languageSpinner = findViewById<Spinner>(R.id.advancedLanguageSpinner)
+        languageSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                if (updating) {
+                    return
+                }
+                if (currentSettings == null) {
+                    return
+                }
+                val tag = languageTags.getOrNull(position) ?: languageTags.first()
+                if (currentSettings?.languageTag == tag) {
+                    return
+                }
+                settingsViewModel.updateLanguageTag(tag)
+                NsPlayerApp.applyLanguage(tag, recreate = false)
+                requestLanguageRecreate()
             }
-            val mode = when (checkedId) {
-                R.id.advancedThemeLight -> ThemeMode.LIGHT
-                R.id.advancedThemeDark -> ThemeMode.DARK
-                else -> ThemeMode.SYSTEM
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        val themeSpinner = findViewById<Spinner>(R.id.advancedThemeSpinner)
+        themeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                if (updating) {
+                    return
+                }
+                if (currentSettings == null) {
+                    return
+                }
+                val mode = when (position) {
+                    1 -> ThemeMode.LIGHT
+                    2 -> ThemeMode.DARK
+                    else -> ThemeMode.SYSTEM
+                }
+                if (currentSettings?.themeMode == mode) {
+                    return
+                }
+                settingsViewModel.updateThemeMode(mode)
+                NsPlayerApp.applyTheme(mode)
             }
-            settingsViewModel.updateThemeMode(mode)
-            NsPlayerApp.applyTheme(mode)
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
         val toastMessage = getString(R.string.action_not_ready_long)
@@ -63,6 +109,9 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         val noMediaCheckBox = noMediaRow.findViewById<CheckBox>(R.id.settingsRowCheckBox)
         noMediaCheckBox.setOnCheckedChangeListener { _, isChecked ->
             if (updating) {
+                return@setOnCheckedChangeListener
+            }
+            if (currentSettings?.nomediaEnabled == isChecked) {
                 return@setOnCheckedChangeListener
             }
             settingsViewModel.updateNomediaEnabled(isChecked)
@@ -88,37 +137,46 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             R.id.visibleItemModified to VisibleItem.MODIFIED
         )
         visibleItemIds.forEach { id ->
-            findViewById<CheckBox>(id).setOnCheckedChangeListener { _, _ ->
+            findViewById<CheckBox>(id).setOnCheckedChangeListener { _, isChecked ->
                 if (updating) {
                     return@setOnCheckedChangeListener
                 }
-                val current = settingsViewModel.getSettings().value?.visibleItems ?: emptySet()
                 val item = visibleItemMap[id] ?: return@setOnCheckedChangeListener
-                val next = current.toMutableSet()
-                if (next.contains(item)) {
-                    next.remove(item)
-                } else {
-                    next.add(item)
+                if (currentSettings?.visibleItems?.contains(item) == isChecked) {
+                    return@setOnCheckedChangeListener
                 }
-                settingsViewModel.updateVisibleItems(next)
+                settingsViewModel.updateVisibleItem(item, isChecked)
                 Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
             }
         }
 
         settingsViewModel.getSettings().observe(this) { settings ->
             updating = true
-            val targetId = when (settings.themeMode) {
-                ThemeMode.LIGHT -> R.id.advancedThemeLight
-                ThemeMode.DARK -> R.id.advancedThemeDark
-                ThemeMode.SYSTEM -> R.id.advancedThemeDevice
+            currentSettings = settings
+            val languagePosition = languageTags.indexOf(settings.languageTag).let { idx ->
+                if (idx >= 0) idx else 0
             }
-            if (themeGroup.checkedRadioButtonId != targetId) {
-                themeGroup.check(targetId)
+            if (languageSpinner.selectedItemPosition != languagePosition) {
+                languageSpinner.setSelection(languagePosition, false)
             }
-            noMediaCheckBox.isChecked = settings.nomediaEnabled
+            val targetPosition = when (settings.themeMode) {
+                ThemeMode.LIGHT -> 1
+                ThemeMode.DARK -> 2
+                ThemeMode.SYSTEM -> 0
+            }
+            if (themeSpinner.selectedItemPosition != targetPosition) {
+                themeSpinner.setSelection(targetPosition, false)
+            }
+            if (noMediaCheckBox.isChecked != settings.nomediaEnabled) {
+                noMediaCheckBox.isChecked = settings.nomediaEnabled
+            }
             visibleItemIds.forEach { id ->
                 val item = visibleItemMap[id] ?: return@forEach
-                findViewById<CheckBox>(id).isChecked = settings.visibleItems.contains(item)
+                val checkBox = findViewById<CheckBox>(id)
+                val shouldChecked = settings.visibleItems.contains(item)
+                if (checkBox.isChecked != shouldChecked) {
+                    checkBox.isChecked = shouldChecked
+                }
             }
             updating = false
         }
@@ -142,5 +200,18 @@ class AdvancedSettingsActivity : AppCompatActivity() {
     private fun dpToPx(dp: Int): Int {
         val density = resources.displayMetrics.density
         return Math.round(dp * density)
+    }
+
+    private fun requestLanguageRecreate() {
+        if (pendingLanguageRecreate || isFinishing || isDestroyed) {
+            return
+        }
+        pendingLanguageRecreate = true
+        window.decorView.post {
+            pendingLanguageRecreate = false
+            if (!isFinishing && !isDestroyed) {
+                recreate()
+            }
+        }
     }
 }

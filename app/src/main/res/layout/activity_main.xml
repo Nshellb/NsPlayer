@@ -115,6 +115,8 @@
             android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:maxLines="1"
+            android:textSize="12sp"
             android:text="@string/move"
             android:textColor="@color/white" />
 
@@ -125,6 +127,8 @@
             android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:maxLines="1"
+            android:textSize="12sp"
             android:text="@string/copy"
             android:textColor="@color/white" />
 
@@ -135,6 +139,8 @@
             android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:maxLines="1"
+            android:textSize="12sp"
             android:text="@string/delete"
             android:textColor="@color/white" />
     </LinearLayout>

@@ -50,21 +50,68 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateLanguageTag(languageTag: String?) {
         repository.updateLanguageTag(languageTag)
-        refresh()
+        val current = settings.value
+        if (current != null) {
+            if (current.languageTag == languageTag) {
+                return
+            }
+            settings.value = current.copy(languageTag = languageTag)
+        } else {
+            refresh()
+        }
     }
 
     fun updateThemeMode(themeMode: ThemeMode) {
         repository.updateThemeMode(themeMode)
-        refresh()
+        val current = settings.value
+        if (current != null) {
+            if (current.themeMode == themeMode) {
+                return
+            }
+            settings.value = current.copy(themeMode = themeMode)
+        } else {
+            refresh()
+        }
     }
 
     fun updateNomediaEnabled(enabled: Boolean) {
         repository.updateNomediaEnabled(enabled)
-        refresh()
+        val current = settings.value
+        if (current != null) {
+            if (current.nomediaEnabled == enabled) {
+                return
+            }
+            settings.value = current.copy(nomediaEnabled = enabled)
+        } else {
+            refresh()
+        }
     }
 
     fun updateVisibleItems(items: Set<VisibleItem>) {
         repository.updateVisibleItems(items)
-        refresh()
+        val current = settings.value
+        if (current != null) {
+            settings.value = current.copy(visibleItems = items)
+        } else {
+            refresh()
+        }
+    }
+
+    fun updateVisibleItem(item: VisibleItem, enabled: Boolean) {
+        repository.updateVisibleItem(item, enabled)
+        val current = settings.value
+        if (current != null) {
+            val next = current.visibleItems.toMutableSet()
+            if (enabled) {
+                next.add(item)
+            } else {
+                next.remove(item)
+            }
+            if (next != current.visibleItems) {
+                settings.value = current.copy(visibleItems = next)
+            }
+        } else {
+            refresh()
+        }
     }
 }

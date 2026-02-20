@@ -1,0 +1,12 @@
+<resources>
+    <string-array name="advanced_language_entries">
+        <item>@string/language_system</item>
+        <item>@string/language_korean</item>
+        <item>@string/language_english</item>
+    </string-array>
+    <string-array name="advanced_theme_entries">
+        <item>@string/advanced_theme_device</item>
+        <item>@string/advanced_theme_light</item>
+        <item>@string/advanced_theme_dark</item>
+    </string-array>
+</resources>

@@ -6,6 +6,8 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
+import com.nshell.nsplayer.NsPlayerApp
+import com.nshell.nsplayer.R
 import com.nshell.nsplayer.ui.main.DisplayItem
 import com.nshell.nsplayer.ui.main.VideoMode
 import com.nshell.nsplayer.ui.main.VideoSortMode
@@ -336,10 +338,12 @@ class MediaStoreVideoRepository : VideoRepository {
 
     private fun buildVolumeLabel(volumeName: String): String {
         Log.d(logTag, "Build volume label for volumeName=$volumeName")
+        val context = NsPlayerApp.appContext()
         return if (volumeName == MediaStore.VOLUME_EXTERNAL_PRIMARY) {
-            "내장 스토리지"
+            context?.getString(R.string.storage_internal) ?: "내장 스토리지"
         } else {
-            "외장 스토리지 ($volumeName)"
+            context?.getString(R.string.storage_external_format, volumeName)
+                ?: "외장 스토리지 ($volumeName)"
         }
     }
 

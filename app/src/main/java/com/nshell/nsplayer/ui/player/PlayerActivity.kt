@@ -17,7 +17,7 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.SeekBar
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import com.nshell.nsplayer.ui.base.BaseActivity
 import com.nshell.nsplayer.R
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -31,7 +31,7 @@ import androidx.media3.ui.PlayerView
 import java.io.IOException
 import java.util.Locale
 
-class PlayerActivity : AppCompatActivity() {
+class PlayerActivity : BaseActivity() {
     private lateinit var playerView: PlayerView
     private var player: ExoPlayer? = null
     private lateinit var overlayContainer: View
