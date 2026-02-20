@@ -38,6 +38,7 @@ internal fun MainActivity.updateHeaderState() {
 
 internal fun MainActivity.applyVideoDisplayMode() {
     adapter.setVideoDisplayMode(browserState.videoDisplayMode)
+    adapter.setTileSpanCount(browserState.tileSpanCount)
     list.layoutManager = if (browserState.videoDisplayMode == VideoDisplayMode.TILE) {
         GridLayoutManager(this, browserState.tileSpanCount)
     } else {

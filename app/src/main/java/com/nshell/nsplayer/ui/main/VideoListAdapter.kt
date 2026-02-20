@@ -8,6 +8,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.format.Formatter
 import android.text.style.ReplacementSpan
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -42,6 +43,7 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
     private var selectionChangedListener: OnSelectionChangedListener? = null
     private var selectionMode = false
     private var visibleItems: Set<VisibleItem> = VisibleItem.values().toSet()
+    private var tileSpanCount = 2
     private val modifiedFormatter = DateFormat.getDateTimeInstance(
         DateFormat.MEDIUM,
         DateFormat.SHORT
@@ -81,6 +83,12 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         }
         visibleItems = next
         notifyDataSetChanged()
+    }
+
+    fun setTileSpanCount(count: Int?) {
+        if (count != null) {
+            tileSpanCount = count
+        }
     }
 
     fun isSelectionMode(): Boolean = selectionMode
@@ -198,11 +206,16 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         val folderIcon: ImageView? = itemView.findViewById(R.id.folderIcon)
         val overflowButton: ImageView? = itemView.findViewById(R.id.overflowButton)
         val defaultTitleColor: Int = title?.currentTextColor ?: Color.BLACK
+        val defaultTitleSizePx: Float = title?.textSize ?: 0f
+        val defaultSubtitleSizePx: Float = subtitle?.textSize ?: 0f
+        val defaultDurationSizePx: Float = durationText?.textSize ?: 0f
+        val defaultResolutionSizePx: Float = resolutionText?.textSize ?: 0f
     }
 
     private fun bindDefault(holder: ViewHolder, item: DisplayItem) {
         holder.title?.text = item.title
         holder.title?.setTextColor(holder.defaultTitleColor)
+        applyTileTextSizing(holder)
         val subtitle = item.subtitle
         if (subtitle.isNullOrEmpty()) {
             holder.subtitle?.visibility = View.GONE
@@ -251,6 +264,7 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
     private fun bindVideo(holder: ViewHolder, item: DisplayItem) {
         holder.title?.text = item.title
         holder.title?.setTextColor(holder.defaultTitleColor)
+        applyTileTextSizing(holder)
         bindSubtitle(holder, item)
 
         holder.overflowButton?.setOnClickListener {
@@ -281,6 +295,44 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         }
         subtitleView.text = buildSubtitleSpannable(parts, subtitleView)
         subtitleView.visibility = View.VISIBLE
+    }
+
+    private fun applyTileTextSizing(holder: ViewHolder) {
+        if (videoDisplayMode != VideoDisplayMode.TILE) {
+            return
+        }
+        val title = holder.title
+        val subtitle = holder.subtitle
+        val duration = holder.durationText
+        val resolution = holder.resolutionText
+        when {
+            tileSpanCount >= 4 -> {
+                title?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                subtitle?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                duration?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                resolution?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            }
+            tileSpanCount == 3 -> {
+                title?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                subtitle?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                duration?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                resolution?.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            }
+            else -> {
+                if (holder.defaultTitleSizePx > 0f) {
+                    title?.setTextSize(TypedValue.COMPLEX_UNIT_PX, holder.defaultTitleSizePx)
+                }
+                if (holder.defaultSubtitleSizePx > 0f) {
+                    subtitle?.setTextSize(TypedValue.COMPLEX_UNIT_PX, holder.defaultSubtitleSizePx)
+                }
+                if (holder.defaultDurationSizePx > 0f) {
+                    duration?.setTextSize(TypedValue.COMPLEX_UNIT_PX, holder.defaultDurationSizePx)
+                }
+                if (holder.defaultResolutionSizePx > 0f) {
+                    resolution?.setTextSize(TypedValue.COMPLEX_UNIT_PX, holder.defaultResolutionSizePx)
+                }
+            }
+        }
     }
 
     private fun buildSubtitleSpannable(parts: List<String>, view: View): CharSequence {
