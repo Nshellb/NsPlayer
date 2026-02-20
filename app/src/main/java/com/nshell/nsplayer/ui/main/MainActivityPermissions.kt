@@ -100,6 +100,7 @@ internal fun MainActivity.renderLoading(loading: Boolean?) {
 }
 
 internal fun MainActivity.applySettings(settings: SettingsState) {
+    adapter.setVisibleItems(settings.visibleItems)
     viewModel.updateState {
         it.copy(
             currentMode = settings.mode,

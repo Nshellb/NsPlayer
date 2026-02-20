@@ -146,7 +146,6 @@ class AdvancedSettingsActivity : BaseActivity() {
                     return@setOnCheckedChangeListener
                 }
                 settingsViewModel.updateVisibleItem(item, isChecked)
-                Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
             }
         }
 

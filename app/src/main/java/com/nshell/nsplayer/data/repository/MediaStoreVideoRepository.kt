@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import com.nshell.nsplayer.NsPlayerApp
@@ -57,7 +58,7 @@ class MediaStoreVideoRepository : VideoRepository {
 
     private fun queryVideosInternal(bucketId: String?, resolver: ContentResolver): MutableList<VideoEntry> {
         val entries = mutableListOf<VideoEntry>()
-        val projection = arrayOf(
+        val projection = mutableListOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
             MediaStore.Video.Media.BUCKET_ID,
@@ -67,12 +68,17 @@ class MediaStoreVideoRepository : VideoRepository {
             MediaStore.Video.Media.HEIGHT,
             MediaStore.Video.Media.RELATIVE_PATH,
             MediaStore.Video.Media.DATE_MODIFIED,
+            MediaStore.Video.Media.SIZE,
             MediaStore.Video.Media.VOLUME_NAME
         )
+        val includeFrameRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        if (includeFrameRate) {
+            projection.add(MediaStore.Video.Media.CAPTURE_FRAMERATE)
+        }
         val sortOrder = MediaStore.Video.Media.DATE_ADDED + " DESC"
         val selection = if (bucketId != null) "${MediaStore.Video.Media.BUCKET_ID}=?" else null
         val selectionArgs = if (bucketId != null) arrayOf(bucketId) else null
-        resolver.query(VIDEOS_URI, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+        resolver.query(VIDEOS_URI, projection.toTypedArray(), selection, selectionArgs, sortOrder)?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
             val bucketIdCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_ID)
@@ -82,11 +88,18 @@ class MediaStoreVideoRepository : VideoRepository {
             val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
             val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.RELATIVE_PATH)
             val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_MODIFIED)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            val frameRateCol = if (includeFrameRate) {
+                cursor.getColumnIndex(MediaStore.Video.Media.CAPTURE_FRAMERATE)
+            } else {
+                -1
+            }
             val volumeCol = cursor.getColumnIndex(MediaStore.Video.Media.VOLUME_NAME)
 
             while (cursor.moveToNext()) {
                 val rawVolume = if (volumeCol >= 0) cursor.getString(volumeCol) else null
                 val relPath = cursor.getString(pathCol)
+                val frameRate = if (frameRateCol >= 0) cursor.getFloat(frameRateCol) else 0f
                 entries.add(
                     VideoEntry(
                         id = cursor.getLong(idCol),
@@ -97,7 +110,9 @@ class MediaStoreVideoRepository : VideoRepository {
                         width = cursor.getInt(widthCol),
                         height = cursor.getInt(heightCol),
                         relativePath = relPath,
+                        sizeBytes = cursor.getLong(sizeCol),
                         modifiedSeconds = cursor.getLong(modifiedCol),
+                        frameRate = frameRate,
                         volumeName = rawVolume
                     )
                 )
@@ -114,18 +129,7 @@ class MediaStoreVideoRepository : VideoRepository {
     }
 
     private fun buildVideoItems(entries: List<VideoEntry>): List<DisplayItem> {
-        return entries.map { entry ->
-            DisplayItem(
-                DisplayItem.Type.VIDEO,
-                safe(entry.displayName, "Unknown"),
-                null,
-                0,
-                entry.duration,
-                entry.width,
-                entry.height,
-                ContentUris.withAppendedId(VIDEOS_URI, entry.id).toString()
-            )
-        }
+        return entries.map { entry -> buildVideoItem(entry) }
     }
 
     private fun buildFolderItems(entries: List<VideoEntry>): List<DisplayItem> {
@@ -241,7 +245,9 @@ class MediaStoreVideoRepository : VideoRepository {
         val width: Int,
         val height: Int,
         val relativePath: String?,
+        val sizeBytes: Long,
         val modifiedSeconds: Long,
+        val frameRate: Float,
         val volumeName: String?
     )
 
@@ -251,10 +257,13 @@ class MediaStoreVideoRepository : VideoRepository {
             safe(entry.displayName, "Unknown"),
             null,
             0,
-            entry.duration,
-            entry.width,
-            entry.height,
-            ContentUris.withAppendedId(VIDEOS_URI, entry.id).toString()
+            durationMs = entry.duration,
+            width = entry.width,
+            height = entry.height,
+            contentUri = ContentUris.withAppendedId(VIDEOS_URI, entry.id).toString(),
+            sizeBytes = entry.sizeBytes,
+            modifiedSeconds = entry.modifiedSeconds,
+            frameRate = entry.frameRate
         )
     }
 

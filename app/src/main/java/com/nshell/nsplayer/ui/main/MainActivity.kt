@@ -209,6 +209,11 @@ class MainActivity : BaseActivity() {
         updateHeaderState()
     }
 
+    override fun onResume() {
+        super.onResume()
+        settingsViewModel.refresh()
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,

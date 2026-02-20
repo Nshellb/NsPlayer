@@ -17,10 +17,6 @@ data class SettingsState(
     val visibleItems: Set<VisibleItem> = setOf(
         VisibleItem.THUMBNAIL,
         VisibleItem.DURATION,
-        VisibleItem.EXTENSION,
-        VisibleItem.RESOLUTION,
-        VisibleItem.FRAME_RATE,
-        VisibleItem.SIZE,
-        VisibleItem.MODIFIED
+        VisibleItem.RESOLUTION
     )
 )

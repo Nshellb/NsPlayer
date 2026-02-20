@@ -1,7 +1,13 @@
 package com.nshell.nsplayer.ui.main
 
 import android.graphics.Color
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.net.Uri
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.format.Formatter
+import android.text.style.ReplacementSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -10,6 +16,9 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.nshell.nsplayer.R
+import com.nshell.nsplayer.data.settings.VisibleItem
+import java.text.DateFormat
+import java.util.Date
 import java.util.Locale
 
 class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
@@ -32,6 +41,11 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
     private var overflowClickListener: OnItemOverflowClickListener? = null
     private var selectionChangedListener: OnSelectionChangedListener? = null
     private var selectionMode = false
+    private var visibleItems: Set<VisibleItem> = VisibleItem.values().toSet()
+    private val modifiedFormatter = DateFormat.getDateTimeInstance(
+        DateFormat.MEDIUM,
+        DateFormat.SHORT
+    )
 
     fun submit(nextItems: List<DisplayItem>?) {
         items.clear()
@@ -58,6 +72,15 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
 
     fun setOnSelectionChangedListener(listener: OnSelectionChangedListener?) {
         selectionChangedListener = listener
+    }
+
+    fun setVisibleItems(items: Set<VisibleItem>?) {
+        val next = items?.toSet() ?: emptySet()
+        if (visibleItems == next) {
+            return
+        }
+        visibleItems = next
+        notifyDataSetChanged()
     }
 
     fun isSelectionMode(): Boolean = selectionMode
@@ -232,37 +255,170 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
             overflowClickListener?.onOverflowClick(item)
         }
 
-        holder.thumbnail?.let { thumbnail ->
-            val uri = item.contentUri
-            if (!uri.isNullOrEmpty()) {
-                thumbnail.clearColorFilter()
-                Glide.with(thumbnail.context)
-                    .load(Uri.parse(uri))
-                    .centerCrop()
-                    .into(thumbnail)
-            } else {
-                thumbnail.setImageDrawable(null)
-            }
-        }
+        bindThumbnail(holder, item)
 
         val basePadding = dpToPx(holder.itemView, 8)
         holder.itemView.setPadding(basePadding, basePadding, basePadding, basePadding)
     }
 
     private fun bindSubtitle(holder: ViewHolder, item: DisplayItem) {
-        val duration = formatDuration(item.durationMs)
-        val resolution = if (item.width > 0 && item.height > 0) {
-            "${item.width}x${item.height}"
-        } else {
-            ""
+        val parts = buildSubtitleParts(item, holder.itemView)
+        holder.subtitleRow?.visibility = View.GONE
+        holder.durationText?.visibility = View.GONE
+        holder.resolutionText?.visibility = View.GONE
+        holder.subtitleDivider?.visibility = View.GONE
+
+        val subtitleView = holder.subtitle
+        if (subtitleView == null) {
+            return
         }
-        holder.subtitle?.visibility = View.GONE
-        holder.subtitleRow?.visibility = View.VISIBLE
-        holder.durationText?.text = duration
-        holder.resolutionText?.text = resolution
-        val hasResolution = resolution.isNotEmpty()
-        holder.subtitleDivider?.visibility = if (hasResolution) View.VISIBLE else View.GONE
-        holder.resolutionText?.visibility = if (hasResolution) View.VISIBLE else View.GONE
+        if (parts.isEmpty()) {
+            subtitleView.visibility = View.GONE
+            return
+        }
+        subtitleView.text = buildSubtitleSpannable(parts, subtitleView)
+        subtitleView.visibility = View.VISIBLE
+    }
+
+    private fun buildSubtitleSpannable(parts: List<String>, view: View): CharSequence {
+        if (parts.isEmpty()) {
+            return ""
+        }
+        val dividerMargin = dpToPx(view, if (videoDisplayMode == VideoDisplayMode.TILE) 6 else 8)
+        val dividerHeight = dpToPx(view, 10)
+        val dividerWidth = dpToPx(view, 1).coerceAtLeast(1)
+        val dividerColor = view.context.getColor(android.R.color.darker_gray)
+        val builder = SpannableStringBuilder()
+        parts.forEachIndexed { index, text ->
+            if (index > 0) {
+                val start = builder.length
+                builder.append(' ')
+                builder.setSpan(
+                    DividerSpan(dividerColor, dividerWidth, dividerHeight, dividerMargin),
+                    start,
+                    start + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            builder.append(text)
+        }
+        return builder
+    }
+
+    private class DividerSpan(
+        private val color: Int,
+        private val widthPx: Int,
+        private val heightPx: Int,
+        private val marginPx: Int
+    ) : ReplacementSpan() {
+        override fun getSize(
+            paint: Paint,
+            text: CharSequence,
+            start: Int,
+            end: Int,
+            fm: Paint.FontMetricsInt?
+        ): Int {
+            return marginPx * 2 + widthPx
+        }
+
+        override fun draw(
+            canvas: Canvas,
+            text: CharSequence,
+            start: Int,
+            end: Int,
+            x: Float,
+            top: Int,
+            y: Int,
+            bottom: Int,
+            paint: Paint
+        ) {
+            val left = x + marginPx
+            val right = left + widthPx
+            val centerY = (top + bottom) / 2f
+            val halfHeight = heightPx / 2f
+            val lineTop = centerY - halfHeight
+            val lineBottom = centerY + halfHeight
+            val oldColor = paint.color
+            val oldStyle = paint.style
+            paint.color = color
+            paint.style = Paint.Style.FILL
+            canvas.drawRect(left, lineTop, right, lineBottom, paint)
+            paint.color = oldColor
+            paint.style = oldStyle
+        }
+    }
+
+    private fun bindThumbnail(holder: ViewHolder, item: DisplayItem) {
+        val thumbnail = holder.thumbnail ?: return
+        if (visibleItems.contains(VisibleItem.THUMBNAIL)) {
+            val uri = item.contentUri
+            thumbnail.clearColorFilter()
+            if (!uri.isNullOrEmpty()) {
+                thumbnail.scaleType = ImageView.ScaleType.CENTER_CROP
+                Glide.with(thumbnail.context)
+                    .load(Uri.parse(uri))
+                    .centerCrop()
+                    .into(thumbnail)
+            } else {
+                Glide.with(thumbnail.context).clear(thumbnail)
+                thumbnail.setImageDrawable(null)
+            }
+        } else {
+            Glide.with(thumbnail.context).clear(thumbnail)
+            thumbnail.setImageResource(R.drawable.ic_video)
+            thumbnail.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            thumbnail.setColorFilter(thumbnail.context.getColor(R.color.brand_green))
+        }
+    }
+
+    private fun buildSubtitleParts(item: DisplayItem, view: View): List<String> {
+        if (visibleItems.isEmpty()) {
+            return emptyList()
+        }
+        val parts = mutableListOf<String>()
+        if (visibleItems.contains(VisibleItem.DURATION) && item.durationMs > 0L) {
+            parts.add(formatDuration(item.durationMs))
+        }
+        if (visibleItems.contains(VisibleItem.EXTENSION)) {
+            extractExtension(item.title)?.let { parts.add(it) }
+        }
+        if (visibleItems.contains(VisibleItem.RESOLUTION) && item.width > 0 && item.height > 0) {
+            parts.add("${item.width}x${item.height}")
+        }
+        if (visibleItems.contains(VisibleItem.FRAME_RATE)) {
+            formatFrameRate(item.frameRate)?.let { parts.add(it) }
+        }
+        if (visibleItems.contains(VisibleItem.SIZE) && item.sizeBytes > 0L) {
+            parts.add(Formatter.formatFileSize(view.context, item.sizeBytes))
+        }
+        if (visibleItems.contains(VisibleItem.MODIFIED) && item.modifiedSeconds > 0L) {
+            parts.add(formatModifiedDate(item.modifiedSeconds))
+        }
+        return parts
+    }
+
+    private fun extractExtension(title: String): String? {
+        val dot = title.lastIndexOf('.')
+        if (dot <= 0 || dot == title.length - 1) {
+            return null
+        }
+        return title.substring(dot + 1).uppercase(Locale.US)
+    }
+
+    private fun formatFrameRate(frameRate: Float): String? {
+        if (frameRate <= 0f) {
+            return null
+        }
+        val rounded = if (frameRate % 1f == 0f) {
+            frameRate.toInt().toString()
+        } else {
+            String.format(Locale.US, "%.2f", frameRate).trimEnd('0').trimEnd('.')
+        }
+        return "${rounded}fps"
+    }
+
+    private fun formatModifiedDate(modifiedSeconds: Long): String {
+        return modifiedFormatter.format(Date(modifiedSeconds * 1000))
     }
 
     private fun formatDuration(durationMs: Long): String {
