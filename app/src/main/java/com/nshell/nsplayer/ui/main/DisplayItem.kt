@@ -12,7 +12,8 @@ data class DisplayItem(
     val contentUri: String? = null,
     val sizeBytes: Long = 0L,
     val modifiedSeconds: Long = 0L,
-    val frameRate: Float = 0f
+    val frameRate: Float = 0f,
+    val hasSubtitle: Boolean = false
 ) {
     enum class Type {
         FOLDER,
@@ -32,7 +33,8 @@ data class DisplayItem(
         null,
         0L,
         0L,
-        0f
+        0f,
+        false
     )
 
     constructor(
@@ -53,7 +55,8 @@ data class DisplayItem(
         null,
         0L,
         0L,
-        0f
+        0f,
+        false
     )
 
     constructor(
@@ -77,6 +80,7 @@ data class DisplayItem(
         contentUri,
         0L,
         0L,
-        0f
+        0f,
+        false
     )
 }

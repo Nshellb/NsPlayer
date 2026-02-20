@@ -44,6 +44,16 @@
     <string name="property_subtitle_yes">있음</string>
     <string name="property_subtitle_no">없음</string>
     <string name="property_subtitle_na">해당 없음</string>
+    <string name="subtitle_settings">자막</string>
+    <string name="subtitle_toggle">자막 표시</string>
+    <string name="subtitle_select">자막 선택</string>
+    <string name="subtitle_none">없음</string>
+    <string name="subtitle_select_file">파일 선택...</string>
+    <string name="subtitle_language">기본 언어</string>
+    <string name="subtitle_encoding">인코딩</string>
+    <string name="subtitle_encoding_utf8">UTF-8</string>
+    <string name="subtitle_encoding_euc_kr">EUC-KR</string>
+    <string name="subtitle_encoding_cp949">CP949</string>
     <string name="property_unknown">알 수 없음</string>
     <string name="property_root">Root</string>
     <string name="property_close">확인</string>

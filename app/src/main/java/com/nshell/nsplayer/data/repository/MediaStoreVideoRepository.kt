@@ -25,10 +25,11 @@ class MediaStoreVideoRepository : VideoRepository {
     ): List<DisplayItem> {
         val entries = queryVideos(resolver)
         sortEntries(entries, sortMode, sortOrder)
+        val enriched = attachSubtitleInfo(entries, resolver)
         return when (mode) {
-            VideoMode.VIDEOS -> buildVideoItems(entries)
-            VideoMode.HIERARCHY -> buildHierarchyLevelItems(entries, "", sortMode, sortOrder)
-            VideoMode.FOLDERS -> buildFolderItems(entries)
+            VideoMode.VIDEOS -> buildVideoItems(enriched)
+            VideoMode.HIERARCHY -> buildHierarchyLevelItems(enriched, "", sortMode, sortOrder)
+            VideoMode.FOLDERS -> buildFolderItems(enriched)
         }
     }
 
@@ -40,7 +41,8 @@ class MediaStoreVideoRepository : VideoRepository {
     ): List<DisplayItem> {
         val entries = queryVideosInternal(bucketId, resolver)
         sortEntries(entries, sortMode, sortOrder)
-        return buildVideoItems(entries)
+        val enriched = attachSubtitleInfo(entries, resolver)
+        return buildVideoItems(enriched)
     }
 
     override fun loadHierarchy(
@@ -50,7 +52,8 @@ class MediaStoreVideoRepository : VideoRepository {
         resolver: ContentResolver
     ): List<DisplayItem> {
         val entries = queryVideos(resolver)
-        return buildHierarchyLevelItems(entries, path, sortMode, sortOrder)
+        val enriched = attachSubtitleInfo(entries, resolver)
+        return buildHierarchyLevelItems(enriched, path, sortMode, sortOrder)
     }
 
     private fun queryVideos(resolver: ContentResolver): MutableList<VideoEntry> =
@@ -248,7 +251,8 @@ class MediaStoreVideoRepository : VideoRepository {
         val sizeBytes: Long,
         val modifiedSeconds: Long,
         val frameRate: Float,
-        val volumeName: String?
+        val volumeName: String?,
+        val hasSubtitle: Boolean = false
     )
 
     private fun buildVideoItem(entry: VideoEntry): DisplayItem {
@@ -263,9 +267,102 @@ class MediaStoreVideoRepository : VideoRepository {
             contentUri = ContentUris.withAppendedId(VIDEOS_URI, entry.id).toString(),
             sizeBytes = entry.sizeBytes,
             modifiedSeconds = entry.modifiedSeconds,
-            frameRate = entry.frameRate
+            frameRate = entry.frameRate,
+            hasSubtitle = entry.hasSubtitle
         )
     }
+
+    private fun attachSubtitleInfo(
+        entries: MutableList<VideoEntry>,
+        resolver: ContentResolver
+    ): MutableList<VideoEntry> {
+        if (entries.isEmpty()) {
+            return entries
+        }
+        val subtitleIndex = buildSubtitleIndex(entries, resolver)
+        if (subtitleIndex.isEmpty()) {
+            return entries
+        }
+        return entries.map { entry ->
+            val name = entry.displayName ?: ""
+            val base = name.substringBeforeLast('.', name).lowercase(Locale.US)
+            if (base.isEmpty() || entry.relativePath.isNullOrEmpty()) {
+                entry
+            } else {
+                val key = SubtitleKey(resolveVolumeName(entry.volumeName), entry.relativePath)
+                val subtitleBases = subtitleIndex[key]
+                val hasSubtitle = subtitleBases?.any { matchesSubtitleBase(base, it) } == true
+                if (hasSubtitle == entry.hasSubtitle) {
+                    entry
+                } else {
+                    entry.copy(hasSubtitle = hasSubtitle)
+                }
+            }
+        }.toMutableList()
+    }
+
+    private fun buildSubtitleIndex(
+        entries: List<VideoEntry>,
+        resolver: ContentResolver
+    ): Map<SubtitleKey, Set<String>> {
+        val allowedExt = setOf("srt", "vtt", "ass", "ssa", "sub")
+        val pathsByVolume = mutableMapOf<String, MutableSet<String>>()
+        entries.forEach { entry ->
+            val path = entry.relativePath
+            if (path.isNullOrEmpty()) {
+                return@forEach
+            }
+            val volume = resolveVolumeName(entry.volumeName)
+            pathsByVolume.getOrPut(volume) { mutableSetOf() }.add(path)
+        }
+        if (pathsByVolume.isEmpty()) {
+            return emptyMap()
+        }
+        val result = mutableMapOf<SubtitleKey, MutableSet<String>>()
+        pathsByVolume.forEach { (volume, paths) ->
+            val filesUri = MediaStore.Files.getContentUri(volume)
+            val projection = arrayOf(
+                MediaStore.Files.FileColumns.DISPLAY_NAME,
+                MediaStore.Files.FileColumns.RELATIVE_PATH
+            )
+            paths.forEach { relativePath ->
+                resolver.query(
+                    filesUri,
+                    projection,
+                    "${MediaStore.Files.FileColumns.RELATIVE_PATH}=?",
+                    arrayOf(relativePath),
+                    null
+                )?.use { cursor ->
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                    val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.RELATIVE_PATH)
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(nameCol) ?: continue
+                        val path = cursor.getString(pathCol) ?: relativePath
+                        val ext = name.substringAfterLast('.', "").lowercase(Locale.US)
+                        if (!allowedExt.contains(ext)) {
+                            continue
+                        }
+                        val base = name.substringBeforeLast('.', name).lowercase(Locale.US)
+                        if (base.isEmpty()) {
+                            continue
+                        }
+                        val key = SubtitleKey(volume, path)
+                        result.getOrPut(key) { mutableSetOf() }.add(base)
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private fun matchesSubtitleBase(videoBase: String, subtitleBase: String): Boolean {
+        return subtitleBase == videoBase || subtitleBase.startsWith("$videoBase.")
+    }
+
+    private data class SubtitleKey(
+        val volumeName: String,
+        val relativePath: String
+    )
 
     private fun normalizePath(path: String?): String {
         if (path.isNullOrEmpty()) {

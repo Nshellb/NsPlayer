@@ -194,6 +194,7 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         val resolutionText: TextView? = itemView.findViewById(R.id.resolutionText)
         val subtitleDivider: View? = itemView.findViewById(R.id.subtitleDivider)
         val thumbnail: ImageView? = itemView.findViewById(R.id.thumbnail)
+        val subtitleBadge: TextView? = itemView.findViewById(R.id.subtitleBadge)
         val folderIcon: ImageView? = itemView.findViewById(R.id.folderIcon)
         val overflowButton: ImageView? = itemView.findViewById(R.id.overflowButton)
         val defaultTitleColor: Int = title?.currentTextColor ?: Color.BLACK
@@ -210,6 +211,7 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
             holder.subtitle?.visibility = View.VISIBLE
         }
         holder.subtitleRow?.visibility = View.GONE
+        holder.subtitleBadge?.visibility = View.GONE
 
         holder.overflowButton?.setOnClickListener {
             overflowClickListener?.onOverflowClick(item)
@@ -256,6 +258,7 @@ class VideoListAdapter : RecyclerView.Adapter<VideoListAdapter.ViewHolder>() {
         }
 
         bindThumbnail(holder, item)
+        holder.subtitleBadge?.visibility = if (item.hasSubtitle) View.VISIBLE else View.GONE
 
         val basePadding = dpToPx(holder.itemView, 8)
         holder.itemView.setPadding(basePadding, basePadding, basePadding, basePadding)

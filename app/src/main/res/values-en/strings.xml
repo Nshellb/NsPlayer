@@ -44,6 +44,16 @@
     <string name="property_subtitle_yes">Yes</string>
     <string name="property_subtitle_no">No</string>
     <string name="property_subtitle_na">N/A</string>
+    <string name="subtitle_settings">Subtitles</string>
+    <string name="subtitle_toggle">Show subtitles</string>
+    <string name="subtitle_select">Subtitle track</string>
+    <string name="subtitle_none">None</string>
+    <string name="subtitle_select_file">Choose file...</string>
+    <string name="subtitle_language">Default language</string>
+    <string name="subtitle_encoding">Encoding</string>
+    <string name="subtitle_encoding_utf8">UTF-8</string>
+    <string name="subtitle_encoding_euc_kr">EUC-KR</string>
+    <string name="subtitle_encoding_cp949">CP949</string>
     <string name="property_unknown">Unknown</string>
     <string name="property_root">Root</string>
     <string name="property_close">OK</string>

@@ -545,12 +545,11 @@ internal fun MainActivity.hasSubtitle(relativePath: String?, displayName: String
     if (relativePath.isNullOrEmpty() || displayName.isNullOrEmpty()) {
         return false
     }
-    val base = displayName.substringBeforeLast('.', displayName)
+    val base = displayName.substringBeforeLast('.', displayName).lowercase(Locale.US)
     if (base.isEmpty()) {
         return false
     }
     val targets = setOf("srt", "vtt", "ass", "ssa", "sub")
-    val targetNames = targets.map { "$base.$it".lowercase(Locale.US) }.toSet()
     val projection = arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)
     val selection = "${MediaStore.MediaColumns.RELATIVE_PATH}=?"
     val selectionArgs = arrayOf(relativePath)
@@ -564,7 +563,17 @@ internal fun MainActivity.hasSubtitle(relativePath: String?, displayName: String
         val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
         while (cursor.moveToNext()) {
             val name = cursor.getString(nameCol) ?: continue
-            if (targetNames.contains(name.lowercase(Locale.US))) {
+            val lower = name.lowercase(Locale.US)
+            val dot = lower.lastIndexOf('.')
+            if (dot <= 0 || dot == lower.length - 1) {
+                continue
+            }
+            val ext = lower.substring(dot + 1)
+            if (!targets.contains(ext)) {
+                continue
+            }
+            val subtitleBase = lower.substring(0, dot)
+            if (subtitleBase == base || subtitleBase.startsWith("$base.")) {
                 return true
             }
         }

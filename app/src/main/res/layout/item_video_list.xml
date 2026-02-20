@@ -6,12 +6,31 @@
     android:orientation="horizontal"
     android:padding="12dp">
 
-    <ImageView
-        android:id="@+id/thumbnail"
+    <FrameLayout
         android:layout_width="120dp"
-        android:layout_height="68dp"
-        android:contentDescription="@null"
-        android:scaleType="centerCrop" />
+        android:layout_height="68dp">
+
+        <ImageView
+            android:id="@+id/thumbnail"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+
+        <TextView
+            android:id="@+id/subtitleBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:background="#66000000"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="2dp"
+            android:text="SRT"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:visibility="gone" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"

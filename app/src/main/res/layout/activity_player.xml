@@ -101,6 +101,16 @@
                     android:text="00:00" />
 
                 <ImageButton
+                    android:id="@+id/subtitleButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/subtitle_settings"
+                    android:src="@drawable/ic_subtitles"
+                    android:tint="@android:color/white" />
+
+                <ImageButton
                     android:id="@+id/rotateButton"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
