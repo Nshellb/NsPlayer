@@ -158,6 +158,8 @@
         android:layout_height="48dp"
         android:layout_gravity="center"
         android:indeterminate="true"
+        android:indeterminateTint="@color/brand_green"
+        android:indeterminateTintMode="src_in"
         android:visibility="gone" />
 
     <TextView

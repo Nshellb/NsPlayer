@@ -47,6 +47,8 @@ class PlayerActivity : BaseActivity() {
     private lateinit var playerView: PlayerView
     private var player: ExoPlayer? = null
     private lateinit var overlayContainer: View
+    private lateinit var topBar: View
+    private lateinit var bottomBar: View
     private lateinit var playPauseButton: ImageButton
     private lateinit var rotateButton: ImageButton
     private lateinit var seekBar: SeekBar
@@ -134,6 +136,8 @@ class PlayerActivity : BaseActivity() {
 
         playerView = findViewById(R.id.playerView)
         overlayContainer = findViewById(R.id.overlayContainer)
+        topBar = findViewById(R.id.topBar)
+        bottomBar = findViewById(R.id.bottomBar)
         playPauseButton = findViewById(R.id.playPauseButton)
         rotateButton = findViewById(R.id.rotateButton)
         seekBar = findViewById(R.id.seekBar)
@@ -387,7 +391,15 @@ class PlayerActivity : BaseActivity() {
         return isPointInsideView(event, playPauseButton) ||
             isPointInsideView(event, rotateButton) ||
             isPointInsideView(event, seekBar) ||
-            isPointInsideView(event, overlayContainer.findViewById(R.id.bottomBar))
+            isPointInsideView(event, speedButton) ||
+            isPointInsideView(event, subtitleButton) ||
+            isPointInsideView(event, resumeButton) ||
+            isPointInsideView(event, positionText) ||
+            isPointInsideView(event, durationText) ||
+            isPointInsideView(event, topBar) ||
+            isPointInsideView(event, bottomBar) ||
+            isPointInsideView(event, loadingSpinner) ||
+            isPointInsideView(event, errorText)
     }
 
     private fun isPointInsideView(event: MotionEvent, view: View?): Boolean {
