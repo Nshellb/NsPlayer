@@ -21,14 +21,18 @@ class MediaStoreVideoRepository : VideoRepository {
         mode: VideoMode,
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
-        resolver: ContentResolver
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean
     ): List<DisplayItem> {
         val entries = queryVideos(resolver)
-        sortEntries(entries, sortMode, sortOrder)
-        val enriched = attachSubtitleInfo(entries, resolver)
+        val noMediaIndex = buildNoMediaIndexForEntries(entries, resolver, nomediaEnabled)
+        val filtered = applyNoMediaFilter(entries, noMediaIndex)
+        sortEntries(filtered, sortMode, sortOrder)
+        val enriched = attachSubtitleInfo(filtered, resolver)
         return when (mode) {
             VideoMode.VIDEOS -> buildVideoItems(enriched)
-            VideoMode.HIERARCHY -> buildHierarchyLevelItems(enriched, "", sortMode, sortOrder)
+            VideoMode.HIERARCHY ->
+                buildHierarchyLevelItems(enriched, "", sortMode, sortOrder, noMediaIndex)
             VideoMode.FOLDERS -> buildFolderItems(enriched)
         }
     }
@@ -37,11 +41,14 @@ class MediaStoreVideoRepository : VideoRepository {
         bucketId: String,
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
-        resolver: ContentResolver
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean
     ): List<DisplayItem> {
         val entries = queryVideosInternal(bucketId, resolver)
-        sortEntries(entries, sortMode, sortOrder)
-        val enriched = attachSubtitleInfo(entries, resolver)
+        val noMediaIndex = buildNoMediaIndexForEntries(entries, resolver, nomediaEnabled)
+        val filtered = applyNoMediaFilter(entries, noMediaIndex)
+        sortEntries(filtered, sortMode, sortOrder)
+        val enriched = attachSubtitleInfo(filtered, resolver)
         return buildVideoItems(enriched)
     }
 
@@ -49,15 +56,18 @@ class MediaStoreVideoRepository : VideoRepository {
         path: String,
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
-        resolver: ContentResolver
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean
     ): List<DisplayItem> {
         val entries = if (path.isEmpty()) {
             queryVideos(resolver)
         } else {
             queryVideosForHierarchy(path, resolver)
         }
-        val enriched = attachSubtitleInfo(entries, resolver)
-        return buildHierarchyLevelItems(enriched, path, sortMode, sortOrder)
+        val noMediaIndex = buildNoMediaIndexForEntries(entries, resolver, nomediaEnabled)
+        val filtered = applyNoMediaFilter(entries, noMediaIndex)
+        val enriched = attachSubtitleInfo(filtered, resolver)
+        return buildHierarchyLevelItems(enriched, path, sortMode, sortOrder, noMediaIndex)
     }
 
     private fun queryVideos(resolver: ContentResolver): MutableList<VideoEntry> =
@@ -207,7 +217,8 @@ class MediaStoreVideoRepository : VideoRepository {
         entries: List<VideoEntry>,
         currentPath: String,
         sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder
+        sortOrder: VideoSortOrder,
+        noMediaIndex: Map<String, Set<String>>
     ): List<DisplayItem> {
         if (currentPath.isEmpty()) {
             return buildVolumeRootItems(entries)
@@ -217,6 +228,7 @@ class MediaStoreVideoRepository : VideoRepository {
         val folders = mutableMapOf<String, FolderAggregate>()
         val videos = mutableListOf<VideoEntry>()
         val basePrefix = if (volumePath == null) "" else "$VOLUME_PREFIX${volumePath.volumeName}/"
+        val activeVolume = resolveVolumeName(volumePath?.volumeName)
 
         for (entry in entries) {
             val entryVolume = resolveVolumeName(entry.volumeName)
@@ -224,6 +236,9 @@ class MediaStoreVideoRepository : VideoRepository {
                 continue
             }
             var path = entryPath(entry)
+            if (isBlockedByNoMedia(entryVolume, path, noMediaIndex)) {
+                continue
+            }
             if (!path.startsWith(normalizedPath)) {
                 continue
             }
@@ -238,6 +253,9 @@ class MediaStoreVideoRepository : VideoRepository {
                 continue
             }
             val childPath = basePrefix + normalizedPath + childName + "/"
+            if (isBlockedByNoMedia(activeVolume, normalizedPath + childName + "/", noMediaIndex)) {
+                continue
+            }
             val aggregate = folders.getOrPut(childPath) { FolderAggregate(childPath, childName) }
             aggregate.count++
             var childRemainder = remainder.substring(childName.length)
@@ -258,6 +276,9 @@ class MediaStoreVideoRepository : VideoRepository {
         val sortedFolders = folders.values.sortedBy { it.name.lowercase(Locale.US) }
         val items = mutableListOf<DisplayItem>()
         for (aggregate in sortedFolders) {
+            if (isBlockedBucket(aggregate.bucketId, noMediaIndex)) {
+                continue
+            }
             items.add(
                 DisplayItem(
                     DisplayItem.Type.HIERARCHY,
@@ -347,6 +368,96 @@ class MediaStoreVideoRepository : VideoRepository {
                 }
             }
         }.toMutableList()
+    }
+
+    private fun applyNoMediaFilter(
+        entries: MutableList<VideoEntry>,
+        noMediaIndex: Map<String, Set<String>>
+    ): MutableList<VideoEntry> {
+        if (noMediaIndex.isEmpty()) {
+            return entries
+        }
+        return entries.filterNot { entry ->
+            val relative = normalizePath(entry.relativePath)
+            if (relative.isEmpty()) {
+                return@filterNot false
+            }
+            val volume = resolveVolumeName(entry.volumeName)
+            val blocked = noMediaIndex[volume] ?: return@filterNot false
+            blocked.any { relative.startsWith(it) }
+        }.toMutableList()
+    }
+
+    private fun buildNoMediaIndexForEntries(
+        entries: List<VideoEntry>,
+        resolver: ContentResolver,
+        enabled: Boolean
+    ): Map<String, Set<String>> {
+        if (!enabled || entries.isEmpty()) {
+            return emptyMap()
+        }
+        return buildNoMediaIndex(entries, resolver)
+    }
+
+    private fun buildNoMediaIndex(
+        entries: List<VideoEntry>,
+        resolver: ContentResolver
+    ): Map<String, Set<String>> {
+        val volumes = entries
+            .map { resolveVolumeName(it.volumeName) }
+            .distinct()
+            .ifEmpty { listOf(MediaStore.VOLUME_EXTERNAL_PRIMARY) }
+        val result = mutableMapOf<String, MutableSet<String>>()
+        volumes.forEach { volume ->
+            val filesUri = MediaStore.Files.getContentUri(volume)
+            val projection = arrayOf(MediaStore.Files.FileColumns.RELATIVE_PATH)
+            resolver.query(
+                filesUri,
+                projection,
+                "${MediaStore.Files.FileColumns.DISPLAY_NAME}=?",
+                arrayOf(".nomedia"),
+                null
+            )?.use { cursor ->
+                val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.RELATIVE_PATH)
+                while (cursor.moveToNext()) {
+                    val rel = normalizePath(cursor.getString(pathCol))
+                    if (rel.isNotEmpty()) {
+                        result.getOrPut(volume) { mutableSetOf() }.add(rel)
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private fun isBlockedByNoMedia(
+        volumeName: String,
+        relativePath: String,
+        noMediaIndex: Map<String, Set<String>>
+    ): Boolean {
+        if (relativePath.isEmpty()) {
+            return false
+        }
+        val blocked = noMediaIndex[volumeName] ?: return false
+        return blocked.any { relativePath.startsWith(it) }
+    }
+
+    private fun isBlockedBucket(
+        bucketId: String?,
+        noMediaIndex: Map<String, Set<String>>
+    ): Boolean {
+        if (bucketId.isNullOrEmpty()) {
+            return false
+        }
+        val volumePath = parseVolumePath(bucketId)
+        val volume = resolveVolumeName(volumePath?.volumeName)
+        val relative = volumePath?.relativePath ?: bucketId
+        val normalized = normalizePath(relative)
+        if (normalized.isEmpty()) {
+            return false
+        }
+        val blocked = noMediaIndex[volume] ?: return false
+        return blocked.any { normalized.startsWith(it) }
     }
 
     private fun buildSubtitleIndex(

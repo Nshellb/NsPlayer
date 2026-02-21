@@ -21,6 +21,7 @@ internal fun MainActivity.loadIfPermitted(
                 current.sortMode,
                 current.sortOrder,
                 contentResolver,
+                current.nomediaEnabled,
                 useCache,
                 showRefreshing
             )
@@ -30,6 +31,7 @@ internal fun MainActivity.loadIfPermitted(
                     current.sortMode,
                     current.sortOrder,
                     contentResolver,
+                    current.nomediaEnabled,
                     useCache,
                     showRefreshing
                 )
@@ -38,6 +40,7 @@ internal fun MainActivity.loadIfPermitted(
                 current.sortMode,
                 current.sortOrder,
                 contentResolver,
+                current.nomediaEnabled,
                 useCache,
                 showRefreshing
             )
@@ -116,6 +119,7 @@ internal fun MainActivity.renderLoading(loading: Boolean?) {
 }
 
 internal fun MainActivity.applySettings(settings: SettingsState) {
+    val nomediaChanged = browserState.nomediaEnabled != settings.nomediaEnabled
     adapter.setVisibleItems(settings.visibleItems)
     viewModel.updateState {
         it.copy(
@@ -123,12 +127,15 @@ internal fun MainActivity.applySettings(settings: SettingsState) {
             videoDisplayMode = settings.displayMode,
             tileSpanCount = settings.tileSpanCount,
             sortMode = settings.sortMode,
-            sortOrder = settings.sortOrder
+            sortOrder = settings.sortOrder,
+            nomediaEnabled = settings.nomediaEnabled
         )
     }
     if (!initialSettingsApplied) {
         initialSettingsApplied = true
         loadWithSettings()
+    } else if (nomediaChanged) {
+        loadIfPermitted(useCache = true)
     }
 }
 

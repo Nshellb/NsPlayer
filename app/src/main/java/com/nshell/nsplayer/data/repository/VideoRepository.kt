@@ -11,20 +11,23 @@ interface VideoRepository {
         mode: VideoMode,
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
-        resolver: ContentResolver
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean
     ): List<DisplayItem>
 
     fun loadVideosInFolder(
         bucketId: String,
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
-        resolver: ContentResolver
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean
     ): List<DisplayItem>
 
     fun loadHierarchy(
         path: String,
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
-        resolver: ContentResolver
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean
     ): List<DisplayItem>
 }

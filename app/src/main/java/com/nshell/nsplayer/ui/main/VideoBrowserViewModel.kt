@@ -46,6 +46,7 @@ class VideoBrowserViewModel : ViewModel() {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
+        nomediaEnabled: Boolean,
         useCache: Boolean = false,
         showRefreshing: Boolean = false
     ) {
@@ -54,6 +55,7 @@ class VideoBrowserViewModel : ViewModel() {
             mode = mode,
             sortMode = sortMode,
             sortOrder = sortOrder,
+            nomediaEnabled = nomediaEnabled,
             bucketId = null,
             hierarchyPath = null
         )
@@ -61,7 +63,7 @@ class VideoBrowserViewModel : ViewModel() {
             key,
             useCache,
             showRefreshing,
-            loader = { repository.load(mode, sortMode, sortOrder, resolver) }
+            loader = { repository.load(mode, sortMode, sortOrder, resolver, nomediaEnabled) }
         )
     }
 
@@ -70,6 +72,7 @@ class VideoBrowserViewModel : ViewModel() {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
+        nomediaEnabled: Boolean,
         useCache: Boolean = false,
         showRefreshing: Boolean = false
     ) {
@@ -78,6 +81,7 @@ class VideoBrowserViewModel : ViewModel() {
             mode = VideoMode.FOLDERS,
             sortMode = sortMode,
             sortOrder = sortOrder,
+            nomediaEnabled = nomediaEnabled,
             bucketId = bucketId,
             hierarchyPath = null
         )
@@ -85,7 +89,9 @@ class VideoBrowserViewModel : ViewModel() {
             key,
             useCache,
             showRefreshing,
-            loader = { repository.loadVideosInFolder(bucketId, sortMode, sortOrder, resolver) }
+            loader = {
+                repository.loadVideosInFolder(bucketId, sortMode, sortOrder, resolver, nomediaEnabled)
+            }
         )
     }
 
@@ -94,6 +100,7 @@ class VideoBrowserViewModel : ViewModel() {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
+        nomediaEnabled: Boolean,
         useCache: Boolean = false,
         showRefreshing: Boolean = false
     ) {
@@ -102,6 +109,7 @@ class VideoBrowserViewModel : ViewModel() {
             mode = VideoMode.HIERARCHY,
             sortMode = sortMode,
             sortOrder = sortOrder,
+            nomediaEnabled = nomediaEnabled,
             bucketId = null,
             hierarchyPath = path
         )
@@ -109,9 +117,11 @@ class VideoBrowserViewModel : ViewModel() {
             key,
             useCache,
             showRefreshing,
-            loader = { repository.loadHierarchy(path, sortMode, sortOrder, resolver) },
+            loader = {
+                repository.loadHierarchy(path, sortMode, sortOrder, resolver, nomediaEnabled)
+            },
             prefetch = { items, requestId ->
-                prefetchHierarchyChildren(items, sortMode, sortOrder, resolver, requestId)
+                prefetchHierarchyChildren(items, sortMode, sortOrder, resolver, nomediaEnabled, requestId)
             }
         )
     }
@@ -178,6 +188,7 @@ class VideoBrowserViewModel : ViewModel() {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
+        nomediaEnabled: Boolean,
         requestId: Long
     ) {
         val childPaths = items.asSequence()
@@ -202,6 +213,7 @@ class VideoBrowserViewModel : ViewModel() {
                     mode = VideoMode.HIERARCHY,
                     sortMode = sortMode,
                     sortOrder = sortOrder,
+                    nomediaEnabled = nomediaEnabled,
                     bucketId = null,
                     hierarchyPath = path
                 )
@@ -209,7 +221,7 @@ class VideoBrowserViewModel : ViewModel() {
                 if (!cached.isNullOrEmpty()) {
                     continue
                 }
-                val result = repository.loadHierarchy(path, sortMode, sortOrder, resolver)
+                val result = repository.loadHierarchy(path, sortMode, sortOrder, resolver, nomediaEnabled)
                 cache?.write(key, result)
             }
         }

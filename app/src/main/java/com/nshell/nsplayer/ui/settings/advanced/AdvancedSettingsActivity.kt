@@ -7,7 +7,6 @@ import android.widget.AdapterView
 import android.widget.CheckBox
 import android.widget.Spinner
 import android.widget.TextView
-import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
@@ -102,11 +101,15 @@ class AdvancedSettingsActivity : BaseActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
-        val toastMessage = getString(R.string.action_not_ready_long)
         val noMediaRow = findViewById<View>(R.id.advancedNoMediaRow)
         val noMediaTitle = noMediaRow.findViewById<TextView>(R.id.settingsRowTitle)
         noMediaTitle.text = getString(R.string.advanced_settings_nomedia)
         val noMediaCheckBox = noMediaRow.findViewById<CheckBox>(R.id.settingsRowCheckBox)
+        noMediaRow.setOnClickListener {
+            if (!updating) {
+                noMediaCheckBox.isChecked = !noMediaCheckBox.isChecked
+            }
+        }
         noMediaCheckBox.setOnCheckedChangeListener { _, isChecked ->
             if (updating) {
                 return@setOnCheckedChangeListener
@@ -115,7 +118,6 @@ class AdvancedSettingsActivity : BaseActivity() {
                 return@setOnCheckedChangeListener
             }
             settingsViewModel.updateNomediaEnabled(isChecked)
-            Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
         }
 
         val visibleItemIds = listOf(
@@ -182,17 +184,15 @@ class AdvancedSettingsActivity : BaseActivity() {
 
         val topBar = findViewById<View>(R.id.commonTopBar)
             ?: findViewById(R.id.advancedTopBarInclude)
-        if (topBar != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(topBar) { view, insets ->
-                val topInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
-                view.setPadding(
-                    view.paddingLeft,
-                    topInset + dpToPx(12),
-                    view.paddingRight,
-                    view.paddingBottom
-                )
-                insets
-            }
+        ViewCompat.setOnApplyWindowInsetsListener(topBar) { view, insets ->
+            val topInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
+            view.setPadding(
+                view.paddingLeft,
+                topInset + dpToPx(12),
+                view.paddingRight,
+                view.paddingBottom
+            )
+            insets
         }
     }
 

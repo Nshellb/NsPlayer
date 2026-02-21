@@ -6,6 +6,7 @@ data class VideoBrowserState(
     val tileSpanCount: Int = 2,
     val sortMode: VideoSortMode = VideoSortMode.MODIFIED,
     val sortOrder: VideoSortOrder = VideoSortOrder.DESC,
+    val nomediaEnabled: Boolean = false,
     val inFolderVideos: Boolean = false,
     val selectedBucketId: String? = null,
     val selectedBucketName: String? = null,
