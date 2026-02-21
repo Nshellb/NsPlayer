@@ -50,6 +50,8 @@ class PlayerActivity : BaseActivity() {
     private lateinit var topBar: View
     private lateinit var bottomBar: View
     private lateinit var playPauseButton: ImageButton
+    private lateinit var prevButton: ImageButton
+    private lateinit var nextButton: ImageButton
     private lateinit var rotateButton: ImageButton
     private lateinit var seekBar: SeekBar
     private lateinit var positionText: TextView
@@ -58,6 +60,8 @@ class PlayerActivity : BaseActivity() {
     private lateinit var gestureText: TextView
     private lateinit var subtitleButton: ImageButton
     private lateinit var speedButton: TextView
+    private lateinit var repeatButton: ImageButton
+    private lateinit var shuffleButton: ImageButton
     private lateinit var resumeButton: TextView
     private lateinit var loadingSpinner: View
     private lateinit var errorText: TextView
@@ -87,6 +91,8 @@ class PlayerActivity : BaseActivity() {
     private var maxVolume = 0
     private var audioManager: AudioManager? = null
     private lateinit var videoUri: Uri
+    private var playlistEntries: List<PlaylistEntry> = emptyList()
+    private var playlistIndex: Int = 0
     private var userOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
     private val subtitlePreferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
@@ -99,6 +105,8 @@ class PlayerActivity : BaseActivity() {
     private var subtitleDialogSelectValue: TextView? = null
     private var subtitleDialogEnableSwitch: SwitchCompat? = null
     private var playbackSpeed = 1.0f
+    private var repeatMode = Player.REPEAT_MODE_OFF
+    private var shuffleEnabled = false
     private var pendingResumePrompt = false
 
     private val subtitlePickerLauncher =
@@ -139,6 +147,8 @@ class PlayerActivity : BaseActivity() {
         topBar = findViewById(R.id.topBar)
         bottomBar = findViewById(R.id.bottomBar)
         playPauseButton = findViewById(R.id.playPauseButton)
+        prevButton = findViewById(R.id.prevButton)
+        nextButton = findViewById(R.id.nextButton)
         rotateButton = findViewById(R.id.rotateButton)
         seekBar = findViewById(R.id.seekBar)
         positionText = findViewById(R.id.positionText)
@@ -147,6 +157,8 @@ class PlayerActivity : BaseActivity() {
         gestureText = findViewById(R.id.gestureText)
         subtitleButton = findViewById(R.id.subtitleButton)
         speedButton = findViewById(R.id.speedButton)
+        repeatButton = findViewById(R.id.repeatButton)
+        shuffleButton = findViewById(R.id.shuffleButton)
         resumeButton = findViewById(R.id.resumeButton)
         loadingSpinner = findViewById(R.id.loadingSpinner)
         errorText = findViewById(R.id.errorText)
@@ -160,9 +172,13 @@ class PlayerActivity : BaseActivity() {
         gestureDetector = GestureDetector(this, GestureListener())
 
         playPauseButton.setOnClickListener { togglePlayback() }
+        prevButton.setOnClickListener { playPrevious() }
+        nextButton.setOnClickListener { playNext() }
         rotateButton.setOnClickListener { toggleOrientation() }
         subtitleButton.setOnClickListener { showSubtitleSettingsDialog() }
         speedButton.setOnClickListener { showSpeedDialog() }
+        repeatButton.setOnClickListener { toggleRepeatMode() }
+        shuffleButton.setOnClickListener { toggleShuffleMode() }
         resumeButton.setOnClickListener { restartFromBeginning() }
 
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -208,20 +224,19 @@ class PlayerActivity : BaseActivity() {
             )
         }
 
-        val uriText = intent.getStringExtra(EXTRA_URI)
-        if (uriText == null) {
+        if (!loadPlaylistFromIntent()) {
             finish()
             return
         }
-        videoUri = Uri.parse(uriText)
-        val title = intent.getStringExtra(EXTRA_TITLE)
-        if (title != null) {
-            titleText.text = title
-        }
+        titleText.text = playlistEntries.getOrNull(playlistIndex)?.title ?: titleText.text
         loadSubtitlePreferences()
+        loadPlaybackOptions()
         loadPlaybackSpeed()
         subtitleCandidates = loadSubtitleCandidates(videoUri)
         updateSubtitleButtonState()
+        updateRepeatButton()
+        updateShuffleButton()
+        updateNavigationButtons()
         updateSpeedButtonLabel()
         if (userOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
             requestedOrientation = userOrientation
@@ -283,22 +298,45 @@ class PlayerActivity : BaseActivity() {
                 }
             }
 
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val activePlayer = player ?: return
+                val index = activePlayer.currentMediaItemIndex
+                if (index < 0 || index >= playlistEntries.size) {
+                    return
+                }
+                playlistIndex = index
+                val entry = playlistEntries[index]
+                if (entry.uri != videoUri) {
+                    videoUri = entry.uri
+                    titleText.text = entry.title
+                    selectedSubtitle = null
+                    subtitleCandidates = loadSubtitleCandidates(videoUri)
+                    loadSubtitlePreferences()
+                    updateSubtitleButtonState()
+                }
+                updateNavigationButtons()
+            }
+
             override fun onPlayerErrorChanged(error: PlaybackException?) {
                 updatePlaybackUi(error)
             }
         })
 
         val resumePosition = resolveResumePosition()
+        val items = buildMediaItems()
+        val startIndex = playlistIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
         if (resumePosition > 0L) {
-            player?.setMediaItem(buildMediaItem(), resumePosition)
+            player?.setMediaItems(items, startIndex, resumePosition)
         } else {
-            player?.setMediaItem(buildMediaItem())
+            player?.setMediaItems(items, startIndex, 0L)
         }
         player?.prepare()
         applySubtitleEnabled(subtitleEnabled)
+        applyPlaybackOptions()
         applyPlaybackSpeed()
         player?.play()
         updatePlayPauseIcon(true)
+        updateNavigationButtons()
     }
 
     private fun releasePlayer() {
@@ -318,6 +356,24 @@ class PlayerActivity : BaseActivity() {
         scheduleOverlayHide()
     }
 
+    private fun playPrevious() {
+        val activePlayer = player ?: return
+        if (playlistEntries.size <= 1) {
+            return
+        }
+        activePlayer.seekToPreviousMediaItem()
+        showOverlay()
+    }
+
+    private fun playNext() {
+        val activePlayer = player ?: return
+        if (playlistEntries.size <= 1) {
+            return
+        }
+        activePlayer.seekToNextMediaItem()
+        showOverlay()
+    }
+
     private fun updatePlayPauseIcon(isPlaying: Boolean) {
         val icon = if (isPlaying) {
             R.drawable.ic_pause
@@ -325,6 +381,26 @@ class PlayerActivity : BaseActivity() {
             R.drawable.ic_play
         }
         playPauseButton.setImageResource(icon)
+    }
+
+    private fun updateNavigationButtons() {
+        val hasPlaylist = playlistEntries.size > 1
+        if (!hasPlaylist) {
+            prevButton.isEnabled = false
+            nextButton.isEnabled = false
+            prevButton.alpha = 0.4f
+            nextButton.alpha = 0.4f
+            return
+        }
+        val canWrap = repeatMode == Player.REPEAT_MODE_ALL
+        val hasPrev = canWrap ||
+            (player?.hasPreviousMediaItem() ?: (playlistIndex > 0))
+        val hasNext = canWrap ||
+            (player?.hasNextMediaItem() ?: (playlistIndex < playlistEntries.lastIndex))
+        prevButton.isEnabled = hasPrev
+        nextButton.isEnabled = hasNext
+        prevButton.alpha = if (hasPrev) 1f else 0.4f
+        nextButton.alpha = if (hasNext) 1f else 0.4f
     }
 
     private fun updateProgress(positionMs: Long, durationMs: Long) {
@@ -385,8 +461,12 @@ class PlayerActivity : BaseActivity() {
 
     private fun isTouchOnControls(event: MotionEvent): Boolean {
         return isPointInsideView(event, playPauseButton) ||
+            isPointInsideView(event, prevButton) ||
+            isPointInsideView(event, nextButton) ||
             isPointInsideView(event, rotateButton) ||
             isPointInsideView(event, seekBar) ||
+            isPointInsideView(event, repeatButton) ||
+            isPointInsideView(event, shuffleButton) ||
             isPointInsideView(event, speedButton) ||
             isPointInsideView(event, subtitleButton) ||
             isPointInsideView(event, resumeButton) ||
@@ -720,20 +800,38 @@ class PlayerActivity : BaseActivity() {
         val activePlayer = player ?: return
         val wasPlaying = activePlayer.isPlaying
         val position = activePlayer.currentPosition
-        activePlayer.setMediaItem(buildMediaItem(), position)
+        val index = activePlayer.currentMediaItemIndex.coerceAtLeast(0)
+        activePlayer.setMediaItems(buildMediaItems(), index, position)
         activePlayer.prepare()
         applySubtitleEnabled(subtitleEnabled)
+        applyPlaybackOptions()
         if (wasPlaying) {
             activePlayer.play()
         }
         updateSubtitleButtonState()
     }
 
-    private fun buildMediaItem(): MediaItem {
-        val builder = MediaItem.Builder().setUri(videoUri)
-        val subtitle = selectedSubtitle
+    private fun buildMediaItems(): List<MediaItem> {
+        return playlistEntries.map { entry ->
+            val subtitle = if (entry.uri == videoUri) selectedSubtitle else null
+            buildMediaItem(entry, subtitle)
+        }
+    }
+
+    private fun buildMediaItem(
+        entry: PlaylistEntry,
+        subtitle: SubtitleSource?
+    ): MediaItem {
+        val builder = MediaItem.Builder().setUri(entry.uri)
         if (subtitle != null) {
             builder.setSubtitleConfigurations(listOf(buildSubtitleConfiguration(subtitle)))
+        }
+        if (entry.title.isNotEmpty()) {
+            builder.setMediaMetadata(
+                androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle(entry.title)
+                    .build()
+            )
         }
         return builder.build()
     }
@@ -891,6 +989,79 @@ class PlayerActivity : BaseActivity() {
         showOverlay()
     }
 
+    private fun loadPlaybackOptions() {
+        repeatMode = subtitlePreferences.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
+        shuffleEnabled = subtitlePreferences.getBoolean(KEY_SHUFFLE_ENABLED, false)
+    }
+
+    private fun applyPlaybackOptions() {
+        val activePlayer = player ?: return
+        activePlayer.repeatMode = repeatMode
+        activePlayer.shuffleModeEnabled = shuffleEnabled
+        updateRepeatButton()
+        updateShuffleButton()
+    }
+
+    private fun persistPlaybackOptions() {
+        subtitlePreferences.edit()
+            .putInt(KEY_REPEAT_MODE, repeatMode)
+            .putBoolean(KEY_SHUFFLE_ENABLED, shuffleEnabled)
+            .apply()
+    }
+
+    private fun toggleRepeatMode() {
+        repeatMode = when (repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_OFF
+            else -> Player.REPEAT_MODE_OFF
+        }
+        player?.repeatMode = repeatMode
+        persistPlaybackOptions()
+        updateRepeatButton()
+        showOverlay()
+    }
+
+    private fun toggleShuffleMode() {
+        shuffleEnabled = !shuffleEnabled
+        player?.shuffleModeEnabled = shuffleEnabled
+        persistPlaybackOptions()
+        updateShuffleButton()
+        showOverlay()
+    }
+
+    private fun updateRepeatButton() {
+        val label = when (repeatMode) {
+            Player.REPEAT_MODE_ONE -> getString(R.string.playback_repeat_one)
+            Player.REPEAT_MODE_ALL -> getString(R.string.playback_repeat_all)
+            else -> getString(R.string.playback_repeat_off)
+        }
+        repeatButton.contentDescription = label
+        val icon = if (repeatMode == Player.REPEAT_MODE_ONE) {
+            R.drawable.ic_repeat_one
+        } else {
+            R.drawable.ic_repeat
+        }
+        repeatButton.setImageResource(icon)
+        val active = repeatMode != Player.REPEAT_MODE_OFF
+        val color = if (active) getColor(R.color.brand_green) else getColor(android.R.color.white)
+        repeatButton.setColorFilter(color)
+        repeatButton.alpha = if (active) 1f else 1f
+        updateNavigationButtons()
+    }
+
+    private fun updateShuffleButton() {
+        val label = if (shuffleEnabled) {
+            getString(R.string.playback_shuffle_on)
+        } else {
+            getString(R.string.playback_shuffle_off)
+        }
+        shuffleButton.contentDescription = label
+        val color = if (shuffleEnabled) getColor(R.color.brand_green) else getColor(android.R.color.white)
+        shuffleButton.setColorFilter(color)
+        shuffleButton.alpha = if (shuffleEnabled) 1f else 0.7f
+    }
+
     private fun showSpeedDialog() {
         val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f, 4.0f)
         val labels = speeds.map { formatSpeedLabel(it) }.toTypedArray()
@@ -917,6 +1088,33 @@ class PlayerActivity : BaseActivity() {
         }
         return "${label}x"
     }
+
+    private fun loadPlaylistFromIntent(): Boolean {
+        val uriList = intent.getStringArrayListExtra(EXTRA_PLAYLIST_URIS)
+        val titleList = intent.getStringArrayListExtra(EXTRA_PLAYLIST_TITLES)
+        if (uriList != null && titleList != null && uriList.size == titleList.size && uriList.isNotEmpty()) {
+            playlistEntries = uriList.mapIndexed { index, uri ->
+                PlaylistEntry(Uri.parse(uri), titleList.getOrNull(index) ?: "")
+            }
+            playlistIndex = intent.getIntExtra(EXTRA_PLAYLIST_INDEX, 0)
+                .coerceIn(0, playlistEntries.lastIndex)
+        } else {
+            val uriText = intent.getStringExtra(EXTRA_URI)
+            if (uriText == null) {
+                return false
+            }
+            val title = intent.getStringExtra(EXTRA_TITLE) ?: ""
+            playlistEntries = listOf(PlaylistEntry(Uri.parse(uriText), title))
+            playlistIndex = 0
+        }
+        videoUri = playlistEntries[playlistIndex].uri
+        return true
+    }
+
+    private data class PlaylistEntry(
+        val uri: Uri,
+        val title: String
+    )
 
     private data class ResumeInfo(
         val positionMs: Long,
@@ -949,6 +1147,8 @@ class PlayerActivity : BaseActivity() {
             if (!uriString.isNullOrEmpty() && !label.isNullOrEmpty() && !mime.isNullOrEmpty()) {
                 selectedSubtitle = SubtitleSource(Uri.parse(uriString), label, mime, ext)
             }
+        } else {
+            selectedSubtitle = null
         }
     }
 
@@ -1187,6 +1387,9 @@ class PlayerActivity : BaseActivity() {
     companion object {
         const val EXTRA_URI = "extra_uri"
         const val EXTRA_TITLE = "extra_title"
+        const val EXTRA_PLAYLIST_URIS = "extra_playlist_uris"
+        const val EXTRA_PLAYLIST_TITLES = "extra_playlist_titles"
+        const val EXTRA_PLAYLIST_INDEX = "extra_playlist_index"
         private const val STATE_USER_ORIENTATION = "state_user_orientation"
         private const val SEEK_JUMP_MS = 10_000L
         private const val UI_UPDATE_INTERVAL_MS = 500L
@@ -1202,6 +1405,8 @@ class PlayerActivity : BaseActivity() {
         private const val KEY_SUBTITLE_MIME = "subtitle_mime"
         private const val KEY_SUBTITLE_EXT = "subtitle_ext"
         private const val KEY_PLAYBACK_SPEED = "playback_speed"
+        private const val KEY_REPEAT_MODE = "playback_repeat_mode"
+        private const val KEY_SHUFFLE_ENABLED = "playback_shuffle_enabled"
         private const val KEY_RESUME_PREFIX = "resume_pos_"
         private const val KEY_RESUME_DURATION_PREFIX = "resume_dur_"
         private const val ENCODING_UTF8 = "UTF-8"

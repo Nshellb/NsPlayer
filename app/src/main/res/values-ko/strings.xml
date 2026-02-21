@@ -104,6 +104,16 @@
     <string name="search_folders_item_subtitle">%1$s · %2$d개</string>
     <string name="search_folders_item_count_only">영상 %1$d개</string>
     <string name="action_not_ready_long">준비중 입니다.</string>
+    <string name="play_selected">재생</string>
+    <string name="playback_previous">이전</string>
+    <string name="playback_next">다음</string>
+    <string name="playback_repeat_off">반복 끔</string>
+    <string name="playback_repeat_all">전체 반복</string>
+    <string name="playback_repeat_one">1곡 반복</string>
+    <string name="playback_shuffle_off">랜덤 끔</string>
+    <string name="playback_shuffle_on">랜덤 켬</string>
+    <string name="playlist_empty">재생할 항목이 없습니다.</string>
+    <string name="playlist_loading">재생목록 준비 중...</string>
     <string name="select_all">전체선택</string>
     <string name="move">이동</string>
     <string name="copy">복사</string>

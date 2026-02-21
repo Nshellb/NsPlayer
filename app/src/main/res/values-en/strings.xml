@@ -104,6 +104,16 @@
     <string name="search_folders_item_subtitle">%1$s · %2$d videos</string>
     <string name="search_folders_item_count_only">%1$d videos</string>
     <string name="action_not_ready_long">Coming soon.</string>
+    <string name="play_selected">Play</string>
+    <string name="playback_previous">Previous</string>
+    <string name="playback_next">Next</string>
+    <string name="playback_repeat_off">Repeat off</string>
+    <string name="playback_repeat_all">Repeat all</string>
+    <string name="playback_repeat_one">Repeat one</string>
+    <string name="playback_shuffle_off">Shuffle off</string>
+    <string name="playback_shuffle_on">Shuffle on</string>
+    <string name="playlist_empty">No items to play.</string>
+    <string name="playlist_loading">Preparing playlist...</string>
     <string name="select_all">Select all</string>
     <string name="move">Move</string>
     <string name="copy">Copy</string>

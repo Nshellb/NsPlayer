@@ -122,8 +122,51 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:gravity="center_vertical|end"
+                android:gravity="center_vertical"
                 android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/prevButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/playback_previous"
+                    android:src="@drawable/ic_prev"
+                    android:tint="@android:color/white" />
+
+                <ImageButton
+                    android:id="@+id/nextButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/playback_next"
+                    android:src="@drawable/ic_next"
+                    android:tint="@android:color/white" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <ImageButton
+                    android:id="@+id/repeatButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/playback_repeat_off"
+                    android:src="@drawable/ic_repeat"
+                    android:tint="@android:color/white" />
+
+                <ImageButton
+                    android:id="@+id/shuffleButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/playback_shuffle_off"
+                    android:src="@drawable/ic_shuffle"
+                    android:tint="@android:color/white" />
 
                 <TextView
                     android:id="@+id/speedButton"

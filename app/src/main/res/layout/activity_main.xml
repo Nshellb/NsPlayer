@@ -121,6 +121,16 @@
         android:visibility="gone">
 
         <ImageButton
+            android:id="@+id/selectionPlayButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/play_selected"
+            android:src="@drawable/ic_play"
+            android:tint="@color/white" />
+
+        <ImageButton
             android:id="@+id/selectionAllButton"
             android:layout_width="0dp"
             android:layout_height="40dp"

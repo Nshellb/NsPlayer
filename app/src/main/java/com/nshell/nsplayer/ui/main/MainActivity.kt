@@ -1,6 +1,7 @@
 package com.nshell.nsplayer.ui.main
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -17,7 +18,10 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.nshell.nsplayer.R
+import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : BaseActivity() {
     internal lateinit var statusText: TextView
@@ -27,6 +31,7 @@ class MainActivity : BaseActivity() {
     internal lateinit var headerBackButton: View
     internal lateinit var titleText: TextView
     internal lateinit var selectionBar: View
+    internal lateinit var selectionPlayButton: ImageButton
     internal lateinit var selectionAllButton: ImageButton
     internal lateinit var selectionMoveButton: Button
     internal lateinit var selectionCopyButton: Button
@@ -43,6 +48,7 @@ class MainActivity : BaseActivity() {
     internal var pendingRename: RenameRequest? = null
     internal var pendingFolderRename: FolderRenameRequest? = null
     internal val preferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
+    private val playlistExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     private val copyDestinationLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -107,6 +113,7 @@ class MainActivity : BaseActivity() {
         headerBackButton = findViewById(R.id.headerBackButton)
         titleText = findViewById(R.id.titleText)
         selectionBar = findViewById(R.id.selectionBar)
+        selectionPlayButton = findViewById(R.id.selectionPlayButton)
         selectionAllButton = findViewById(R.id.selectionAllButton)
         selectionMoveButton = findViewById(R.id.selectionMoveButton)
         selectionCopyButton = findViewById(R.id.selectionCopyButton)
@@ -174,6 +181,7 @@ class MainActivity : BaseActivity() {
         selectionMoveButton.setOnClickListener { transferController.startMoveSelected() }
         selectionCopyButton.setOnClickListener { transferController.startCopySelected() }
         selectionDeleteButton.setOnClickListener { transferController.startDeleteSelected() }
+        selectionPlayButton.setOnClickListener { playSelectedItems() }
 
         val settingsButton = findViewById<View>(R.id.settingsButton)
         settingsButton.setOnClickListener { showSettingsDialog(it) }
@@ -225,6 +233,11 @@ class MainActivity : BaseActivity() {
         settingsViewModel.refresh()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        playlistExecutor.shutdown()
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -240,6 +253,104 @@ class MainActivity : BaseActivity() {
             statusText.text = getString(R.string.permission_denied)
             statusText.visibility = View.VISIBLE
         }
+    }
+
+    private fun playSelectedItems() {
+        val selected = adapter.getSelectedItems()
+        if (selected.isEmpty()) {
+            Toast.makeText(this, getString(R.string.playlist_empty), Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, getString(R.string.playlist_loading), Toast.LENGTH_SHORT).show()
+        val current = viewModel.getState().value ?: browserState
+        val sortMode = current.sortMode
+        val sortOrder = current.sortOrder
+        val nomediaEnabled = current.nomediaEnabled
+        val searchUseAll = current.searchFoldersUseAll
+        val searchFolders = current.searchFolders
+        val resolver = contentResolver
+        val repository = MediaStoreVideoRepository()
+        playlistExecutor.execute {
+            val collected = mutableListOf<DisplayItem>()
+            for (item in selected) {
+                when (item.type) {
+                    DisplayItem.Type.VIDEO -> {
+                        if (!item.contentUri.isNullOrEmpty()) {
+                            collected.add(item)
+                        }
+                    }
+                    DisplayItem.Type.FOLDER -> {
+                        val bucket = item.bucketId ?: continue
+                        collected.addAll(
+                            repository.loadVideosInFolder(
+                                bucket,
+                                sortMode,
+                                sortOrder,
+                                resolver,
+                                nomediaEnabled,
+                                searchUseAll,
+                                searchFolders
+                            )
+                        )
+                    }
+                    DisplayItem.Type.HIERARCHY -> {
+                        val path = item.bucketId ?: continue
+                        collected.addAll(
+                            repository.loadVideosUnderHierarchy(
+                                path,
+                                sortMode,
+                                sortOrder,
+                                resolver,
+                                nomediaEnabled,
+                                searchUseAll,
+                                searchFolders
+                            )
+                        )
+                    }
+                }
+            }
+            val unique = LinkedHashMap<String, DisplayItem>()
+            for (item in collected) {
+                val uri = item.contentUri ?: continue
+                if (!unique.containsKey(uri)) {
+                    unique[uri] = item
+                }
+            }
+            val playlist = unique.values.toList()
+            runOnUiThread {
+                if (playlist.isEmpty()) {
+                    Toast.makeText(this, getString(R.string.playlist_empty), Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                startPlaylist(playlist)
+                selectionController.clearSelection()
+            }
+        }
+    }
+
+    private fun startPlaylist(items: List<DisplayItem>) {
+        val uris = ArrayList<String>(items.size)
+        val titles = ArrayList<String>(items.size)
+        items.forEach { item ->
+            val uri = item.contentUri ?: return@forEach
+            uris.add(uri)
+            titles.add(item.title)
+        }
+        if (uris.isEmpty()) {
+            Toast.makeText(this, getString(R.string.playlist_empty), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(this, com.nshell.nsplayer.ui.player.PlayerActivity::class.java)
+        intent.putStringArrayListExtra(
+            com.nshell.nsplayer.ui.player.PlayerActivity.EXTRA_PLAYLIST_URIS,
+            uris
+        )
+        intent.putStringArrayListExtra(
+            com.nshell.nsplayer.ui.player.PlayerActivity.EXTRA_PLAYLIST_TITLES,
+            titles
+        )
+        intent.putExtra(com.nshell.nsplayer.ui.player.PlayerActivity.EXTRA_PLAYLIST_INDEX, 0)
+        startActivity(intent)
     }
 
     companion object {

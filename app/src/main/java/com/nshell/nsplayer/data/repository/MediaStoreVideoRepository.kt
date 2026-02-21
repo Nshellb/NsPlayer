@@ -79,6 +79,28 @@ class MediaStoreVideoRepository : VideoRepository {
         return buildHierarchyLevelItems(enriched, path, sortMode, sortOrder, noMediaIndex)
     }
 
+    fun loadVideosUnderHierarchy(
+        path: String,
+        sortMode: VideoSortMode,
+        sortOrder: VideoSortOrder,
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>
+    ): List<DisplayItem> {
+        val entries = if (path.isEmpty()) {
+            queryVideos(resolver)
+        } else {
+            queryVideosForHierarchy(path, resolver)
+        }
+        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
+        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
+        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
+        sortEntries(filtered, sortMode, sortOrder)
+        val enriched = attachSubtitleInfo(filtered, resolver)
+        return buildVideoItems(enriched)
+    }
+
     private fun queryVideos(resolver: ContentResolver): MutableList<VideoEntry> =
         queryVideosInternal(null, resolver)
 
