@@ -20,6 +20,10 @@ class SettingsRepository(context: Context) {
         val languageTag = preferences.getString(KEY_LANGUAGE, null)
         val themeValue = preferences.getString(KEY_THEME, ThemeMode.SYSTEM.name)
         val nomediaEnabled = preferences.getBoolean(KEY_NOMEDIA, false)
+        val searchFoldersRaw = preferences.getStringSet(KEY_SEARCH_FOLDERS, null)
+        val searchFoldersUseAll =
+            preferences.getBoolean(KEY_SEARCH_FOLDERS_USE_ALL, searchFoldersRaw == null)
+        val searchFolders = searchFoldersRaw?.toSet() ?: emptySet()
         val defaultVisibleItems = SettingsState().visibleItems
         val legacyVisibleItems = preferences.getStringSet(KEY_VISIBLE_ITEMS, null)
             ?.mapNotNull { runCatching { VisibleItem.valueOf(it) }.getOrNull() }
@@ -62,6 +66,8 @@ class SettingsRepository(context: Context) {
             languageTag = languageTag,
             themeMode = themeMode,
             nomediaEnabled = nomediaEnabled,
+            searchFoldersUseAll = searchFoldersUseAll,
+            searchFolders = searchFolders,
             visibleItems = visibleItems
         )
         if (!hasVisibleItemKeys()) {
@@ -102,6 +108,17 @@ class SettingsRepository(context: Context) {
         preferences.edit().putBoolean(KEY_NOMEDIA, enabled).apply()
     }
 
+    fun updateSearchFolders(folders: Set<String>, useAll: Boolean) {
+        val editor = preferences.edit()
+        editor.putBoolean(KEY_SEARCH_FOLDERS_USE_ALL, useAll)
+        if (useAll) {
+            editor.remove(KEY_SEARCH_FOLDERS)
+        } else {
+            editor.putStringSet(KEY_SEARCH_FOLDERS, folders)
+        }
+        editor.apply()
+    }
+
     fun updateVisibleItems(items: Set<VisibleItem>) {
         persistVisibleItems(items)
     }
@@ -120,6 +137,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_LANGUAGE = "language_tag"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_NOMEDIA = "nomedia_enabled"
+        private const val KEY_SEARCH_FOLDERS = "search_folders"
+        private const val KEY_SEARCH_FOLDERS_USE_ALL = "search_folders_use_all"
         private const val KEY_VISIBLE_ITEMS = "visible_items"
         private const val KEY_VISIBLE_ITEM_THUMBNAIL = "visible_item_thumbnail"
         private const val KEY_VISIBLE_ITEM_DURATION = "visible_item_duration"

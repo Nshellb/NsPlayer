@@ -8,6 +8,8 @@ import com.nshell.nsplayer.NsPlayerApp
 import com.nshell.nsplayer.data.cache.VideoListCache
 import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
 import com.nshell.nsplayer.data.repository.VideoRepository
+import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -47,15 +49,19 @@ class VideoBrowserViewModel : ViewModel() {
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
         nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>,
         useCache: Boolean = false,
         showRefreshing: Boolean = false
     ) {
+        val searchFoldersHash = buildSearchFoldersHash(searchFoldersUseAll, searchFolders)
         val key = VideoListCache.Key(
             queryType = VideoListCache.QueryType.MODE,
             mode = mode,
             sortMode = sortMode,
             sortOrder = sortOrder,
             nomediaEnabled = nomediaEnabled,
+            searchFoldersHash = searchFoldersHash,
             bucketId = null,
             hierarchyPath = null
         )
@@ -63,7 +69,17 @@ class VideoBrowserViewModel : ViewModel() {
             key,
             useCache,
             showRefreshing,
-            loader = { repository.load(mode, sortMode, sortOrder, resolver, nomediaEnabled) }
+            loader = {
+                repository.load(
+                    mode,
+                    sortMode,
+                    sortOrder,
+                    resolver,
+                    nomediaEnabled,
+                    searchFoldersUseAll,
+                    searchFolders
+                )
+            }
         )
     }
 
@@ -73,15 +89,19 @@ class VideoBrowserViewModel : ViewModel() {
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
         nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>,
         useCache: Boolean = false,
         showRefreshing: Boolean = false
     ) {
+        val searchFoldersHash = buildSearchFoldersHash(searchFoldersUseAll, searchFolders)
         val key = VideoListCache.Key(
             queryType = VideoListCache.QueryType.FOLDER,
             mode = VideoMode.FOLDERS,
             sortMode = sortMode,
             sortOrder = sortOrder,
             nomediaEnabled = nomediaEnabled,
+            searchFoldersHash = searchFoldersHash,
             bucketId = bucketId,
             hierarchyPath = null
         )
@@ -90,7 +110,15 @@ class VideoBrowserViewModel : ViewModel() {
             useCache,
             showRefreshing,
             loader = {
-                repository.loadVideosInFolder(bucketId, sortMode, sortOrder, resolver, nomediaEnabled)
+                repository.loadVideosInFolder(
+                    bucketId,
+                    sortMode,
+                    sortOrder,
+                    resolver,
+                    nomediaEnabled,
+                    searchFoldersUseAll,
+                    searchFolders
+                )
             }
         )
     }
@@ -101,15 +129,19 @@ class VideoBrowserViewModel : ViewModel() {
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
         nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>,
         useCache: Boolean = false,
         showRefreshing: Boolean = false
     ) {
+        val searchFoldersHash = buildSearchFoldersHash(searchFoldersUseAll, searchFolders)
         val key = VideoListCache.Key(
             queryType = VideoListCache.QueryType.HIERARCHY,
             mode = VideoMode.HIERARCHY,
             sortMode = sortMode,
             sortOrder = sortOrder,
             nomediaEnabled = nomediaEnabled,
+            searchFoldersHash = searchFoldersHash,
             bucketId = null,
             hierarchyPath = path
         )
@@ -118,10 +150,27 @@ class VideoBrowserViewModel : ViewModel() {
             useCache,
             showRefreshing,
             loader = {
-                repository.loadHierarchy(path, sortMode, sortOrder, resolver, nomediaEnabled)
+                repository.loadHierarchy(
+                    path,
+                    sortMode,
+                    sortOrder,
+                    resolver,
+                    nomediaEnabled,
+                    searchFoldersUseAll,
+                    searchFolders
+                )
             },
             prefetch = { items, requestId ->
-                prefetchHierarchyChildren(items, sortMode, sortOrder, resolver, nomediaEnabled, requestId)
+                prefetchHierarchyChildren(
+                    items,
+                    sortMode,
+                    sortOrder,
+                    resolver,
+                    nomediaEnabled,
+                    searchFoldersUseAll,
+                    searchFolders,
+                    requestId
+                )
             }
         )
     }
@@ -189,6 +238,8 @@ class VideoBrowserViewModel : ViewModel() {
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
         nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>,
         requestId: Long
     ) {
         val childPaths = items.asSequence()
@@ -214,6 +265,7 @@ class VideoBrowserViewModel : ViewModel() {
                     sortMode = sortMode,
                     sortOrder = sortOrder,
                     nomediaEnabled = nomediaEnabled,
+                    searchFoldersHash = buildSearchFoldersHash(searchFoldersUseAll, searchFolders),
                     bucketId = null,
                     hierarchyPath = path
                 )
@@ -221,9 +273,32 @@ class VideoBrowserViewModel : ViewModel() {
                 if (!cached.isNullOrEmpty()) {
                     continue
                 }
-                val result = repository.loadHierarchy(path, sortMode, sortOrder, resolver, nomediaEnabled)
+                val result = repository.loadHierarchy(
+                    path,
+                    sortMode,
+                    sortOrder,
+                    resolver,
+                    nomediaEnabled,
+                    searchFoldersUseAll,
+                    searchFolders
+                )
                 cache?.write(key, result)
             }
+        }
+    }
+
+    private fun buildSearchFoldersHash(useAll: Boolean, folders: Set<String>): String {
+        if (useAll) {
+            return "all"
+        }
+        if (folders.isEmpty()) {
+            return "none"
+        }
+        val normalized = folders.sorted().joinToString("|")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(normalized.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { byte ->
+            String.format(Locale.US, "%02x", byte)
         }
     }
 

@@ -22,11 +22,14 @@ class MediaStoreVideoRepository : VideoRepository {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
-        nomediaEnabled: Boolean
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>
     ): List<DisplayItem> {
         val entries = queryVideos(resolver)
-        val noMediaIndex = buildNoMediaIndexForEntries(entries, resolver, nomediaEnabled)
-        val filtered = applyNoMediaFilter(entries, noMediaIndex)
+        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
+        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
+        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
         sortEntries(filtered, sortMode, sortOrder)
         val enriched = attachSubtitleInfo(filtered, resolver)
         return when (mode) {
@@ -42,11 +45,14 @@ class MediaStoreVideoRepository : VideoRepository {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
-        nomediaEnabled: Boolean
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>
     ): List<DisplayItem> {
         val entries = queryVideosInternal(bucketId, resolver)
-        val noMediaIndex = buildNoMediaIndexForEntries(entries, resolver, nomediaEnabled)
-        val filtered = applyNoMediaFilter(entries, noMediaIndex)
+        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
+        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
+        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
         sortEntries(filtered, sortMode, sortOrder)
         val enriched = attachSubtitleInfo(filtered, resolver)
         return buildVideoItems(enriched)
@@ -57,15 +63,18 @@ class MediaStoreVideoRepository : VideoRepository {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
-        nomediaEnabled: Boolean
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>
     ): List<DisplayItem> {
         val entries = if (path.isEmpty()) {
             queryVideos(resolver)
         } else {
             queryVideosForHierarchy(path, resolver)
         }
-        val noMediaIndex = buildNoMediaIndexForEntries(entries, resolver, nomediaEnabled)
-        val filtered = applyNoMediaFilter(entries, noMediaIndex)
+        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
+        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
+        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
         val enriched = attachSubtitleInfo(filtered, resolver)
         return buildHierarchyLevelItems(enriched, path, sortMode, sortOrder, noMediaIndex)
     }
@@ -385,6 +394,23 @@ class MediaStoreVideoRepository : VideoRepository {
             val volume = resolveVolumeName(entry.volumeName)
             val blocked = noMediaIndex[volume] ?: return@filterNot false
             blocked.any { relative.startsWith(it) }
+        }.toMutableList()
+    }
+
+    private fun applySearchFolderFilter(
+        entries: MutableList<VideoEntry>,
+        useAll: Boolean,
+        searchFolders: Set<String>
+    ): MutableList<VideoEntry> {
+        if (useAll) {
+            return entries
+        }
+        if (searchFolders.isEmpty() || entries.isEmpty()) {
+            return mutableListOf()
+        }
+        return entries.filter { entry ->
+            val bucket = entry.bucketId ?: return@filter false
+            searchFolders.contains(bucket)
         }.toMutableList()
     }
 

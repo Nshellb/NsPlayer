@@ -87,6 +87,25 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun updateSearchFolders(folders: Set<String>, useAll: Boolean) {
+        repository.updateSearchFolders(folders, useAll)
+        val current = settings.value
+        if (current != null) {
+            if (
+                current.searchFoldersUseAll == useAll &&
+                current.searchFolders == folders
+            ) {
+                return
+            }
+            settings.value = current.copy(
+                searchFoldersUseAll = useAll,
+                searchFolders = folders
+            )
+        } else {
+            refresh()
+        }
+    }
+
     fun updateVisibleItems(items: Set<VisibleItem>) {
         repository.updateVisibleItems(items)
         val current = settings.value

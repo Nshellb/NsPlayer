@@ -12,7 +12,9 @@ interface VideoRepository {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
-        nomediaEnabled: Boolean
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>
     ): List<DisplayItem>
 
     fun loadVideosInFolder(
@@ -20,7 +22,9 @@ interface VideoRepository {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
-        nomediaEnabled: Boolean
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>
     ): List<DisplayItem>
 
     fun loadHierarchy(
@@ -28,6 +32,8 @@ interface VideoRepository {
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
         resolver: ContentResolver,
-        nomediaEnabled: Boolean
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>
     ): List<DisplayItem>
 }

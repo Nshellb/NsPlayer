@@ -12,15 +12,63 @@
     <LinearLayout
         android:id="@+id/searchFoldersContainer"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:orientation="vertical"
         android:padding="16dp">
 
-        <TextView
-            android:id="@+id/searchFoldersPlaceholder"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/searchFoldersActionRow"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/search_folders_placeholder"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/searchFoldersSelectedCount"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
+
+            <TextView
+                android:id="@+id/searchFoldersSelectAll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="6dp"
+                android:text="@string/search_folders_select_all"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                android:textColor="@color/brand_green" />
+
+            <TextView
+                android:id="@+id/searchFoldersClear"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="6dp"
+                android:text="@string/search_folders_clear"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                android:textColor="@color/brand_green" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/searchFoldersList"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="12dp"
+            android:layout_weight="1"
+            android:clipToPadding="false" />
+
+        <TextView
+            android:id="@+id/searchFoldersEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:text="@string/search_folders_empty"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+            android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>

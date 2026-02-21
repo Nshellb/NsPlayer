@@ -19,6 +19,7 @@ class VideoListCache(context: Context) {
         val sortMode: VideoSortMode,
         val sortOrder: VideoSortOrder,
         val nomediaEnabled: Boolean,
+        val searchFoldersHash: String,
         val bucketId: String?,
         val hierarchyPath: String?
     )
@@ -132,6 +133,7 @@ class VideoListCache(context: Context) {
             key.sortMode.name,
             key.sortOrder.name,
             if (key.nomediaEnabled) "nomedia_on" else "nomedia_off",
+            key.searchFoldersHash,
             key.bucketId.orEmpty(),
             key.hierarchyPath.orEmpty()
         ).joinToString("|")

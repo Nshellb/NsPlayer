@@ -97,6 +97,12 @@
     <string name="advanced_visible_modified">수정된 날짜</string>
     <string name="search_folders_title">검색할 폴더</string>
     <string name="search_folders_placeholder">준비중</string>
+    <string name="search_folders_select_all">전체 선택</string>
+    <string name="search_folders_clear">선택 해제</string>
+    <string name="search_folders_selected_count">선택 %1$d/%2$d</string>
+    <string name="search_folders_empty">동영상이 있는 폴더가 없습니다.</string>
+    <string name="search_folders_item_subtitle">%1$s · %2$d개</string>
+    <string name="search_folders_item_count_only">영상 %1$d개</string>
     <string name="action_not_ready_long">준비중 입니다.</string>
     <string name="select_all">전체선택</string>
     <string name="move">이동</string>

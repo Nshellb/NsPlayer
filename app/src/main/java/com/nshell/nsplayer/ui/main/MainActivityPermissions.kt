@@ -22,6 +22,8 @@ internal fun MainActivity.loadIfPermitted(
                 current.sortOrder,
                 contentResolver,
                 current.nomediaEnabled,
+                current.searchFoldersUseAll,
+                current.searchFolders,
                 useCache,
                 showRefreshing
             )
@@ -32,6 +34,8 @@ internal fun MainActivity.loadIfPermitted(
                     current.sortOrder,
                     contentResolver,
                     current.nomediaEnabled,
+                    current.searchFoldersUseAll,
+                    current.searchFolders,
                     useCache,
                     showRefreshing
                 )
@@ -41,6 +45,8 @@ internal fun MainActivity.loadIfPermitted(
                 current.sortOrder,
                 contentResolver,
                 current.nomediaEnabled,
+                current.searchFoldersUseAll,
+                current.searchFolders,
                 useCache,
                 showRefreshing
             )
@@ -120,6 +126,9 @@ internal fun MainActivity.renderLoading(loading: Boolean?) {
 
 internal fun MainActivity.applySettings(settings: SettingsState) {
     val nomediaChanged = browserState.nomediaEnabled != settings.nomediaEnabled
+    val searchChanged =
+        browserState.searchFoldersUseAll != settings.searchFoldersUseAll ||
+            browserState.searchFolders != settings.searchFolders
     adapter.setVisibleItems(settings.visibleItems)
     viewModel.updateState {
         it.copy(
@@ -128,13 +137,15 @@ internal fun MainActivity.applySettings(settings: SettingsState) {
             tileSpanCount = settings.tileSpanCount,
             sortMode = settings.sortMode,
             sortOrder = settings.sortOrder,
-            nomediaEnabled = settings.nomediaEnabled
+            nomediaEnabled = settings.nomediaEnabled,
+            searchFoldersUseAll = settings.searchFoldersUseAll,
+            searchFolders = settings.searchFolders
         )
     }
     if (!initialSettingsApplied) {
         initialSettingsApplied = true
         loadWithSettings()
-    } else if (nomediaChanged) {
+    } else if (nomediaChanged || searchChanged) {
         loadIfPermitted(useCache = true)
     }
 }

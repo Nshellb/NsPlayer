@@ -97,6 +97,12 @@
     <string name="advanced_visible_modified">Modified</string>
     <string name="search_folders_title">Folders to search</string>
     <string name="search_folders_placeholder">Coming soon</string>
+    <string name="search_folders_select_all">Select all</string>
+    <string name="search_folders_clear">Clear</string>
+    <string name="search_folders_selected_count">Selected %1$d/%2$d</string>
+    <string name="search_folders_empty">No video folders found.</string>
+    <string name="search_folders_item_subtitle">%1$s · %2$d videos</string>
+    <string name="search_folders_item_count_only">%1$d videos</string>
     <string name="action_not_ready_long">Coming soon.</string>
     <string name="select_all">Select all</string>
     <string name="move">Move</string>
