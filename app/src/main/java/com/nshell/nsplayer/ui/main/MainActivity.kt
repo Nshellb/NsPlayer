@@ -142,6 +142,7 @@ class MainActivity : BaseActivity() {
         }
 
         viewModel = ViewModelProvider(this)[VideoBrowserViewModel::class.java]
+        restoreNavigationState(savedInstanceState)
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
         viewModel.getItems().observe(this) { renderItems(it) }
         viewModel.getLoading().observe(this) { renderLoading(it) }
@@ -236,6 +237,16 @@ class MainActivity : BaseActivity() {
     override fun onDestroy() {
         super.onDestroy()
         playlistExecutor.shutdown()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val current = viewModel.getState().value ?: browserState
+        outState.putString(STATE_MODE, current.currentMode.name)
+        outState.putBoolean(STATE_IN_FOLDER, current.inFolderVideos)
+        outState.putString(STATE_BUCKET_ID, current.selectedBucketId)
+        outState.putString(STATE_BUCKET_NAME, current.selectedBucketName)
+        outState.putString(STATE_HIERARCHY_PATH, current.hierarchyPath)
     }
 
     override fun onRequestPermissionsResult(
@@ -358,5 +369,33 @@ class MainActivity : BaseActivity() {
         internal const val PREFS = "nsplayer_prefs"
         internal const val KEY_FOLDER_RENAME_TREE_URI = "folder_rename_tree_uri"
         internal const val VOLUME_PREFIX = "volume:"
+        private const val STATE_MODE = "state_mode"
+        private const val STATE_IN_FOLDER = "state_in_folder"
+        private const val STATE_BUCKET_ID = "state_bucket_id"
+        private const val STATE_BUCKET_NAME = "state_bucket_name"
+        private const val STATE_HIERARCHY_PATH = "state_hierarchy_path"
+    }
+
+    private fun restoreNavigationState(savedInstanceState: Bundle?) {
+        if (savedInstanceState == null) {
+            return
+        }
+        val modeName = savedInstanceState.getString(STATE_MODE) ?: return
+        val mode = runCatching { VideoMode.valueOf(modeName) }.getOrNull() ?: return
+        val hierarchyPath = savedInstanceState.getString(STATE_HIERARCHY_PATH) ?: ""
+        val bucketId = savedInstanceState.getString(STATE_BUCKET_ID)
+        val bucketName = savedInstanceState.getString(STATE_BUCKET_NAME)
+        val inFolder = mode == VideoMode.FOLDERS &&
+            savedInstanceState.getBoolean(STATE_IN_FOLDER, false) &&
+            !bucketId.isNullOrEmpty()
+        viewModel.updateState {
+            it.copy(
+                currentMode = mode,
+                inFolderVideos = inFolder,
+                selectedBucketId = if (inFolder) bucketId else null,
+                selectedBucketName = if (inFolder) bucketName else null,
+                hierarchyPath = if (mode == VideoMode.HIERARCHY) hierarchyPath else ""
+            )
+        }
     }
 }
