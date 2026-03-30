@@ -6,7 +6,6 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.util.Log
 import com.nshell.nsplayer.NsPlayerApp
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.ui.main.DisplayItem
@@ -16,7 +15,6 @@ import com.nshell.nsplayer.ui.main.VideoSortOrder
 import java.util.Locale
 
 class MediaStoreVideoRepository : VideoRepository {
-    private val logTag = "NsPlayerStorage"
     override fun load(
         mode: VideoMode,
         sortMode: VideoSortMode,
@@ -179,15 +177,8 @@ class MediaStoreVideoRepository : VideoRepository {
                         volumeName = rawVolume
                     )
                 )
-                if (entries.size <= 10) {
-                    Log.d(
-                        logTag,
-                        "MediaStore entry volume=$rawVolume, relPath=$relPath, name=${cursor.getString(nameCol)}"
-                    )
-                }
             }
         }
-        Log.d(logTag, "MediaStore query done. entries=${entries.size}")
         return entries
     }
 
@@ -650,7 +641,6 @@ class MediaStoreVideoRepository : VideoRepository {
     }
 
     private fun buildVolumeLabel(volumeName: String): String {
-        Log.d(logTag, "Build volume label for volumeName=$volumeName")
         val context = NsPlayerApp.appContext()
         return if (volumeName == MediaStore.VOLUME_EXTERNAL_PRIMARY) {
             context?.getString(R.string.storage_internal) ?: "내장 스토리지"

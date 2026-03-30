@@ -88,6 +88,17 @@
     <string name="advanced_settings_search_folders">검색할 폴더</string>
     <string name="advanced_settings_visible_items">보여질 항목</string>
     <string name="advanced_settings_nomedia">.nomedia 인식</string>
+    <string name="advanced_settings_inquiry">문의 및 개선</string>
+    <string name="advanced_settings_inquiry_title">문의 및 개선</string>
+    <string name="inquiry_subject">문의 제목</string>
+    <string name="inquiry_subject_hint">제목을 입력해 주세요.</string>
+    <string name="inquiry_message">문의 내용</string>
+    <string name="inquiry_message_hint">내용을 입력해 주세요. 회신을 원한다면 e-mail을 함께 남겨주세요.</string>
+    <string name="inquiry_send">보내기</string>
+    <string name="inquiry_send_success">문의가 전송되었습니다.</string>
+    <string name="inquiry_send_failed">문의 전송에 실패했습니다.</string>
+    <string name="inquiry_error_empty_title">문의 제목을 입력해 주세요.</string>
+    <string name="inquiry_error_empty_content">문의 내용을 입력해 주세요.</string>
     <string name="advanced_visible_thumbnail">썸네일</string>
     <string name="advanced_visible_duration">길이</string>
     <string name="advanced_visible_extension">파일확장자</string>
@@ -157,8 +168,3 @@
     <string name="conflict_skip">건너뛰기</string>
     <string name="conflict_apply_all">현재 작업의 모든 충돌에 동일 적용</string>
 </resources>
-
-
-
-
-

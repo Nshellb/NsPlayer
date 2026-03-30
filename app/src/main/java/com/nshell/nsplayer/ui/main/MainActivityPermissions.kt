@@ -75,11 +75,7 @@ internal fun MainActivity.hasVideoPermission(): Boolean {
 
 internal fun MainActivity.requestMediaPermissions() {
     val permissions = if (Build.VERSION.SDK_INT >= 33) {
-        val requested = mutableListOf(
-            Manifest.permission.READ_MEDIA_VIDEO,
-            Manifest.permission.READ_MEDIA_AUDIO,
-            Manifest.permission.READ_MEDIA_IMAGES
-        )
+        val requested = listOf(Manifest.permission.READ_MEDIA_VIDEO)
         requested.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }.toTypedArray()

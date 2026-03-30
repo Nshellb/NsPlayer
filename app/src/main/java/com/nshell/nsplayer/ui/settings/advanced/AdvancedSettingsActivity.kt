@@ -5,11 +5,17 @@ import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
+import android.util.Log
+import android.os.Build
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
+import com.nshell.nsplayer.BuildConfig
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.NsPlayerApp
 import com.nshell.nsplayer.data.settings.ThemeMode
@@ -18,8 +24,15 @@ import com.nshell.nsplayer.ui.base.BaseActivity
 import com.nshell.nsplayer.data.settings.VisibleItem
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import com.nshell.nsplayer.ui.settings.searchfolders.SearchFoldersActivity
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class AdvancedSettingsActivity : BaseActivity() {
+    private companion object {
+        private const val LOG_TAG = "AdvancedSettings"
+    }
     private lateinit var settingsViewModel: SettingsViewModel
     private var updating = false
     private val languageTags = listOf<String?>(null, "ko", "en")
@@ -120,6 +133,11 @@ class AdvancedSettingsActivity : BaseActivity() {
             settingsViewModel.updateNomediaEnabled(isChecked)
         }
 
+        val inquiryRow = findViewById<View>(R.id.advancedInquiryRow)
+        val inquiryTitle = inquiryRow.findViewById<TextView>(R.id.settingsRowTitle)
+        inquiryTitle.text = getString(R.string.advanced_settings_inquiry)
+        inquiryRow.setOnClickListener { showInquiryDialog() }
+
         val visibleItemIds = listOf(
             R.id.visibleItemThumbnail,
             R.id.visibleItemDuration,
@@ -211,6 +229,189 @@ class AdvancedSettingsActivity : BaseActivity() {
             if (!isFinishing && !isDestroyed) {
                 recreate()
             }
+        }
+    }
+
+    private fun showInquiryDialog() {
+        val content = layoutInflater.inflate(R.layout.dialog_inquiry, null)
+        val subjectInput = content.findViewById<EditText>(R.id.inquirySubjectInput)
+        val messageInput = content.findViewById<EditText>(R.id.inquiryMessageInput)
+        val dialog = AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
+            .setTitle(R.string.advanced_settings_inquiry_title)
+            .setView(content)
+            .setPositiveButton(R.string.inquiry_send, null)
+            .setNegativeButton(R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            val sendButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            sendButton.setOnClickListener {
+                val title = subjectInput.text?.toString()?.trim().orEmpty()
+                if (title.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.inquiry_error_empty_title),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setOnClickListener
+                }
+                val message = messageInput.text?.toString()?.trim().orEmpty()
+                if (message.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.inquiry_error_empty_content),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                submitInquiry(title, message, buildModelCode())
+            }
+        }
+        dialog.show()
+    }
+
+    private fun submitInquiry(title: String, message: String, modelCode: String) {
+        val token = BuildConfig.NOTION_TOKEN
+        if (token.isBlank()) {
+            Toast.makeText(this, getString(R.string.inquiry_send_failed), Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        val dataSourceId = BuildConfig.NOTION_DATA_SOURCE_ID
+        val notionVersion = BuildConfig.NOTION_VERSION
+        if (dataSourceId.isBlank() || notionVersion.isBlank()) {
+            Toast.makeText(
+                this,
+                getString(R.string.inquiry_send_failed),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        val payload = JSONObject()
+            .put(
+                "parent",
+                JSONObject()
+                    .put("type", "data_source_id")
+                    .put("data_source_id", dataSourceId)
+            )
+            .put(
+                "properties",
+                JSONObject()
+                    .put(
+                        "title",
+                        JSONObject()
+                            .put("type", "title")
+                            .put(
+                                "title",
+                                JSONArray()
+                                    .put(
+                                        JSONObject()
+                                            .put("type", "text")
+                                            .put("text", JSONObject().put("content", title))
+                                    )
+                            )
+                    )
+                    .put(
+                        "content",
+                        JSONObject()
+                            .put("type", "rich_text")
+                            .put(
+                                "rich_text",
+                                JSONArray()
+                                    .put(
+                                        JSONObject()
+                                            .put("type", "text")
+                                            .put("text", JSONObject().put("content", message))
+                                    )
+                            )
+                    )
+                    .put(
+                        "model_code",
+                        JSONObject()
+                            .put("type", "rich_text")
+                            .put(
+                                "rich_text",
+                                JSONArray()
+                                    .put(
+                                        JSONObject()
+                                            .put("type", "text")
+                                            .put("text", JSONObject().put("content", modelCode))
+                                    )
+                            )
+                    )
+            )
+            .toString()
+        submitJson(
+            url = "https://api.notion.com/v1/pages",
+            headers = mapOf(
+                "Authorization" to "Bearer $token",
+                "Notion-Version" to notionVersion,
+                "Content-Type" to "application/json; charset=utf-8",
+                "Accept" to "application/json"
+            ),
+            body = payload
+        )
+    }
+
+    private fun submitJson(url: String, headers: Map<String, String>, body: String) {
+        Thread {
+            val success = try {
+                val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    doOutput = true
+                    headers.forEach { (key, value) -> setRequestProperty(key, value) }
+                }
+                connection.outputStream.use { stream ->
+                    stream.write(body.toByteArray(Charsets.UTF_8))
+                }
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    val errorBody = readStream(connection.errorStream ?: connection.inputStream)
+                    Log.e(
+                        LOG_TAG,
+                        "Inquiry request failed. code=$code body=${errorBody.take(2000)}"
+                    )
+                }
+                connection.disconnect()
+                code in 200..299
+            } catch (_: Exception) {
+                false
+            }
+            if (!isFinishing && !isDestroyed) {
+                runOnUiThread {
+                    val messageRes = if (success) {
+                        R.string.inquiry_send_success
+                    } else {
+                        R.string.inquiry_send_failed
+                    }
+                    Toast.makeText(this, getString(messageRes), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun buildModelCode(): String {
+        val modelCode = listOf(Build.MANUFACTURER, Build.MODEL)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .trim()
+        return if (modelCode.isBlank()) {
+            "Unknown"
+        } else {
+            modelCode
+        }
+    }
+
+    private fun readStream(stream: java.io.InputStream?): String {
+        if (stream == null) {
+            return ""
+        }
+        return try {
+            stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (_: Exception) {
+            ""
         }
     }
 }

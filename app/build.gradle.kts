@@ -1,11 +1,33 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
 }
+
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun prop(name: String): String? =
+    (project.findProperty(name) as String?) ?: localProps.getProperty(name)
+
+fun escapeBuildConfig(value: String): String =
+    value.replace("\\", "\\\\").replace("\"", "\\\"")
+
+val notionToken = prop("NOTION_TOKEN") ?: ""
+val notionVersion = prop("NOTION_VERSION") ?: ""
+val notionDataSourceId = prop("NOTION_DATA_SOURCE_ID") ?: ""
 
 android {
     namespace = "com.nshell.nsplayer"
     compileSdk {
         version = release(36)
+    }
+    buildFeatures {
+        buildConfig = true
     }
 
     defaultConfig {
@@ -19,7 +41,23 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "NOTION_TOKEN", "\"${escapeBuildConfig(notionToken)}\"")
+            buildConfigField("String", "NOTION_VERSION", "\"${escapeBuildConfig(notionVersion)}\"")
+            buildConfigField(
+                "String",
+                "NOTION_DATA_SOURCE_ID",
+                "\"${escapeBuildConfig(notionDataSourceId)}\""
+            )
+        }
         release {
+            buildConfigField("String", "NOTION_TOKEN", "\"\"")
+            buildConfigField("String", "NOTION_VERSION", "\"${escapeBuildConfig(notionVersion)}\"")
+            buildConfigField(
+                "String",
+                "NOTION_DATA_SOURCE_ID",
+                "\"${escapeBuildConfig(notionDataSourceId)}\""
+            )
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

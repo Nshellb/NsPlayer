@@ -8,7 +8,6 @@ import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.text.format.Formatter
-import android.util.Log
 import android.app.Activity
 import android.widget.Button
 import android.widget.ProgressBar
@@ -585,7 +584,6 @@ class TransferController(
         try {
             return activity.contentResolver.delete(uri, null, null) > 0
         } catch (e: SecurityException) {
-            Log.e(TAG_DELETE, "deleteSourceUri SecurityException uri=$uri", e)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                 e is android.app.RecoverableSecurityException
             ) {
@@ -594,14 +592,12 @@ class TransferController(
                     return try {
                         activity.contentResolver.delete(uri, null, null) > 0
                     } catch (retry: Exception) {
-                        Log.e(TAG_DELETE, "deleteSourceUri retry failed uri=$uri", retry)
                         false
                     }
                 }
             }
             return false
         } catch (e: Exception) {
-            Log.e(TAG_DELETE, "deleteSourceUri Exception uri=$uri", e)
             return false
         }
     }
@@ -671,7 +667,6 @@ class TransferController(
                 val deleted = try {
                     existing.delete()
                 } catch (e: Exception) {
-                    Log.e(TAG_DELETE, "overwrite delete failed name=$displayName uri=${existing.uri}", e)
                     false
                 }
                 ConflictResolution(displayName, !deleted)
@@ -779,7 +774,6 @@ class TransferController(
         private const val KEY_COPY_TREE_URI = "copy_tree_uri"
         private const val PROGRESS_MAX = 1000
         private const val PROGRESS_UPDATE_MS = 200L
-        private const val TAG_DELETE = "NsPlayerDelete"
     }
 
     private enum class TransferOperation {

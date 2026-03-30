@@ -88,6 +88,17 @@
     <string name="advanced_settings_search_folders">Folders to search</string>
     <string name="advanced_settings_visible_items">Visible items</string>
     <string name="advanced_settings_nomedia">.nomedia support</string>
+    <string name="advanced_settings_inquiry">Feedback</string>
+    <string name="advanced_settings_inquiry_title">Feedback</string>
+    <string name="inquiry_subject">Subject</string>
+    <string name="inquiry_subject_hint">Enter a subject.</string>
+    <string name="inquiry_message">Message</string>
+    <string name="inquiry_message_hint">Enter your message. Include your e-mail if you want a reply.</string>
+    <string name="inquiry_send">Send</string>
+    <string name="inquiry_send_success">Your inquiry has been sent.</string>
+    <string name="inquiry_send_failed">Failed to send your inquiry.</string>
+    <string name="inquiry_error_empty_title">Please enter a subject.</string>
+    <string name="inquiry_error_empty_content">Please enter a message.</string>
     <string name="advanced_visible_thumbnail">Thumbnail</string>
     <string name="advanced_visible_duration">Duration</string>
     <string name="advanced_visible_extension">Extension</string>
