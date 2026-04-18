@@ -36,7 +36,9 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.PlayerView
 import java.io.IOException
 import java.io.File
@@ -78,6 +80,10 @@ class PlayerActivity : BaseActivity() {
     private val hideOverlayRunnable = Runnable { overlayContainer.visibility = View.GONE }
     private val hideGestureTextRunnable = Runnable { gestureText.visibility = View.GONE }
     private val hideResumeButtonRunnable = Runnable { resumeButton.visibility = View.GONE }
+    private val showLoadingSpinnerRunnable = Runnable {
+        pendingLoadingSpinner = false
+        loadingSpinner.visibility = View.VISIBLE
+    }
 
     private var isScrubbing = false
     private lateinit var gestureDetector: GestureDetector
@@ -108,6 +114,7 @@ class PlayerActivity : BaseActivity() {
     private var repeatMode = Player.REPEAT_MODE_OFF
     private var shuffleEnabled = false
     private var pendingResumePrompt = false
+    private var pendingLoadingSpinner = false
 
     private val subtitlePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -258,6 +265,9 @@ class PlayerActivity : BaseActivity() {
         uiHandler.removeCallbacks(hideOverlayRunnable)
         uiHandler.removeCallbacks(hideGestureTextRunnable)
         uiHandler.removeCallbacks(hideResumeButtonRunnable)
+        uiHandler.removeCallbacks(showLoadingSpinnerRunnable)
+        pendingLoadingSpinner = false
+        loadingSpinner.visibility = View.GONE
         saveResumePosition()
         releasePlayer()
         clearSubtitleCache()
@@ -279,7 +289,19 @@ class PlayerActivity : BaseActivity() {
         if (player != null) {
             return
         }
-        player = ExoPlayer.Builder(this).build()
+        val loadControl = DefaultLoadControl.Builder()
+            .setBackBuffer(SEEK_BACK_BUFFER_MS, true)
+            .setBufferDurationsMs(
+                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                BUFFER_FOR_PLAYBACK_AFTER_SEEK_MS,
+                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+            )
+            .build()
+        player = ExoPlayer.Builder(this)
+            .setLoadControl(loadControl)
+            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            .build()
         playerView.player = player
         player?.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -943,13 +965,27 @@ class PlayerActivity : BaseActivity() {
             getString(R.string.playback_error)
         }
         errorText.visibility = View.VISIBLE
-        loadingSpinner.visibility = View.GONE
+        updateLoadingSpinner(false)
         overlayContainer.visibility = View.VISIBLE
         uiHandler.removeCallbacks(hideOverlayRunnable)
     }
 
     private fun clearPlaybackError() {
         errorText.visibility = View.GONE
+    }
+
+    private fun updateLoadingSpinner(visible: Boolean) {
+        if (!visible) {
+            pendingLoadingSpinner = false
+            uiHandler.removeCallbacks(showLoadingSpinnerRunnable)
+            loadingSpinner.visibility = View.GONE
+            return
+        }
+        if (loadingSpinner.visibility == View.VISIBLE || pendingLoadingSpinner) {
+            return
+        }
+        pendingLoadingSpinner = true
+        uiHandler.postDelayed(showLoadingSpinnerRunnable, LOADING_SPINNER_DELAY_MS)
     }
 
     private fun updatePlaybackUi(explicitError: PlaybackException? = null) {
@@ -961,7 +997,7 @@ class PlayerActivity : BaseActivity() {
             clearPlaybackError()
         }
         val buffering = activePlayer.playbackState == Player.STATE_BUFFERING || activePlayer.isLoading
-        loadingSpinner.visibility = if (buffering && error == null) View.VISIBLE else View.GONE
+        updateLoadingSpinner(buffering && error == null)
         updatePlayPauseIcon(activePlayer.isPlaying)
     }
 
@@ -1410,9 +1446,12 @@ class PlayerActivity : BaseActivity() {
         const val EXTRA_PLAYLIST_INDEX = "extra_playlist_index"
         private const val STATE_USER_ORIENTATION = "state_user_orientation"
         private const val SEEK_JUMP_MS = 10_000L
+        private const val SEEK_BACK_BUFFER_MS = 15_000
+        private const val BUFFER_FOR_PLAYBACK_AFTER_SEEK_MS = 1_000
         private const val UI_UPDATE_INTERVAL_MS = 500L
         private const val OVERLAY_AUTO_HIDE_MS = 2500L
         private const val GESTURE_TEXT_HIDE_MS = 1000L
+        private const val LOADING_SPINNER_DELAY_MS = 250L
         private const val PREFS = "nsplayer_prefs"
         private const val KEY_SUBTITLE_ENABLED = "subtitle_enabled"
         private const val KEY_SUBTITLE_LANGUAGE = "subtitle_language"
