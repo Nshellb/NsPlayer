@@ -88,6 +88,7 @@
     <string name="advanced_settings_search_folders">Folders to search</string>
     <string name="advanced_settings_visible_items">Visible items</string>
     <string name="advanced_settings_nomedia">.nomedia support</string>
+    <string name="advanced_settings_auto_pip">Enable automatic PiP</string>
     <string name="advanced_settings_inquiry">Feedback</string>
     <string name="advanced_settings_inquiry_title">Feedback</string>
     <string name="inquiry_subject">Subject</string>
@@ -118,6 +119,7 @@
     <string name="play_selected">Play</string>
     <string name="playback_previous">Previous</string>
     <string name="playback_next">Next</string>
+    <string name="playback_pip">Picture in picture</string>
     <string name="playback_repeat_off">Repeat off</string>
     <string name="playback_repeat_all">Repeat all</string>
     <string name="playback_repeat_one">Repeat one</string>

@@ -20,6 +20,7 @@ class SettingsRepository(context: Context) {
         val languageTag = preferences.getString(KEY_LANGUAGE, null)
         val themeValue = preferences.getString(KEY_THEME, ThemeMode.SYSTEM.name)
         val nomediaEnabled = preferences.getBoolean(KEY_NOMEDIA, false)
+        val autoPipEnabled = preferences.getBoolean(KEY_AUTO_PIP, false)
         val searchFoldersRaw = preferences.getStringSet(KEY_SEARCH_FOLDERS, null)
         val searchFoldersUseAll =
             preferences.getBoolean(KEY_SEARCH_FOLDERS_USE_ALL, searchFoldersRaw == null)
@@ -66,6 +67,7 @@ class SettingsRepository(context: Context) {
             languageTag = languageTag,
             themeMode = themeMode,
             nomediaEnabled = nomediaEnabled,
+            autoPipEnabled = autoPipEnabled,
             searchFoldersUseAll = searchFoldersUseAll,
             searchFolders = searchFolders,
             visibleItems = visibleItems
@@ -108,6 +110,10 @@ class SettingsRepository(context: Context) {
         preferences.edit().putBoolean(KEY_NOMEDIA, enabled).apply()
     }
 
+    fun updateAutoPipEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_AUTO_PIP, enabled).apply()
+    }
+
     fun updateSearchFolders(folders: Set<String>, useAll: Boolean) {
         val editor = preferences.edit()
         editor.putBoolean(KEY_SEARCH_FOLDERS_USE_ALL, useAll)
@@ -137,6 +143,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_LANGUAGE = "language_tag"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_NOMEDIA = "nomedia_enabled"
+        private const val KEY_AUTO_PIP = "auto_pip_enabled"
         private const val KEY_SEARCH_FOLDERS = "search_folders"
         private const val KEY_SEARCH_FOLDERS_USE_ALL = "search_folders_use_all"
         private const val KEY_VISIBLE_ITEMS = "visible_items"

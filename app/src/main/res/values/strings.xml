@@ -88,6 +88,7 @@
     <string name="advanced_settings_search_folders">검색할 폴더</string>
     <string name="advanced_settings_visible_items">보여질 항목</string>
     <string name="advanced_settings_nomedia">.nomedia 인식</string>
+    <string name="advanced_settings_auto_pip">자동 PiP 활성화</string>
     <string name="advanced_settings_inquiry">문의 및 개선</string>
     <string name="advanced_settings_inquiry_title">문의 및 개선</string>
     <string name="inquiry_subject">문의 제목</string>
@@ -118,6 +119,7 @@
     <string name="play_selected">재생</string>
     <string name="playback_previous">이전</string>
     <string name="playback_next">다음</string>
+    <string name="playback_pip">화면 속 화면</string>
     <string name="playback_repeat_off">반복 끔</string>
     <string name="playback_repeat_all">전체 반복</string>
     <string name="playback_repeat_one">1곡 반복</string>

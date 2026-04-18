@@ -133,6 +133,25 @@ class AdvancedSettingsActivity : BaseActivity() {
             settingsViewModel.updateNomediaEnabled(isChecked)
         }
 
+        val autoPipRow = findViewById<View>(R.id.advancedAutoPipRow)
+        val autoPipTitle = autoPipRow.findViewById<TextView>(R.id.settingsRowTitle)
+        autoPipTitle.text = getString(R.string.advanced_settings_auto_pip)
+        val autoPipCheckBox = autoPipRow.findViewById<CheckBox>(R.id.settingsRowCheckBox)
+        autoPipRow.setOnClickListener {
+            if (!updating) {
+                autoPipCheckBox.isChecked = !autoPipCheckBox.isChecked
+            }
+        }
+        autoPipCheckBox.setOnCheckedChangeListener { _, isChecked ->
+            if (updating) {
+                return@setOnCheckedChangeListener
+            }
+            if (currentSettings?.autoPipEnabled == isChecked) {
+                return@setOnCheckedChangeListener
+            }
+            settingsViewModel.updateAutoPipEnabled(isChecked)
+        }
+
         val inquiryRow = findViewById<View>(R.id.advancedInquiryRow)
         val inquiryTitle = inquiryRow.findViewById<TextView>(R.id.settingsRowTitle)
         inquiryTitle.text = getString(R.string.advanced_settings_inquiry)
@@ -188,6 +207,9 @@ class AdvancedSettingsActivity : BaseActivity() {
             }
             if (noMediaCheckBox.isChecked != settings.nomediaEnabled) {
                 noMediaCheckBox.isChecked = settings.nomediaEnabled
+            }
+            if (autoPipCheckBox.isChecked != settings.autoPipEnabled) {
+                autoPipCheckBox.isChecked = settings.autoPipEnabled
             }
             visibleItemIds.forEach { id ->
                 val item = visibleItemMap[id] ?: return@forEach

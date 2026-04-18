@@ -363,7 +363,7 @@ class MainActivity : BaseActivity() {
             Toast.makeText(this, getString(R.string.playlist_empty), Toast.LENGTH_SHORT).show()
             return
         }
-        val intent = Intent(this, com.nshell.nsplayer.ui.player.PlayerActivity::class.java)
+        val intent = com.nshell.nsplayer.ui.player.PlayerActivity.createLaunchIntent(this)
         intent.putStringArrayListExtra(
             com.nshell.nsplayer.ui.player.PlayerActivity.EXTRA_PLAYLIST_URIS,
             uris

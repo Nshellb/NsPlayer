@@ -14,6 +14,7 @@ data class SettingsState(
     val languageTag: String? = null,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val nomediaEnabled: Boolean = false,
+    val autoPipEnabled: Boolean = false,
     val searchFoldersUseAll: Boolean = true,
     val searchFolders: Set<String> = emptySet(),
     val visibleItems: Set<VisibleItem> = setOf(

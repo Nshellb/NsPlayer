@@ -126,6 +126,19 @@
             android:alpha="0.12" />
 
         <include
+            android:id="@+id/advancedAutoPipRow"
+            layout="@layout/include_settings_row_checkbox" />
+
+        <View
+            android:id="@+id/advancedDividerAutoPip"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
+            android:background="?android:attr/textColorSecondary"
+            android:alpha="0.12" />
+
+        <include
             android:id="@+id/advancedInquiryRow"
             layout="@layout/include_settings_row_chevron" />
     </LinearLayout>

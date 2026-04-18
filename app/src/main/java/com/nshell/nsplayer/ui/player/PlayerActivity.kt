@@ -1,19 +1,23 @@
 package com.nshell.nsplayer.ui.player
 
+import android.app.PictureInPictureParams
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Rational
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -22,6 +26,7 @@ import android.widget.ImageButton
 import android.widget.SeekBar
 import android.widget.TextView
 import com.nshell.nsplayer.data.recent.RecentPlaybackStore
+import com.nshell.nsplayer.data.settings.SettingsRepository
 import com.nshell.nsplayer.ui.base.BaseActivity
 import com.nshell.nsplayer.R
 import androidx.activity.result.contract.ActivityResultContracts
@@ -56,6 +61,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var prevButton: ImageButton
     private lateinit var nextButton: ImageButton
     private lateinit var rotateButton: ImageButton
+    private lateinit var pipButton: ImageButton
     private lateinit var seekBar: SeekBar
     private lateinit var positionText: TextView
     private lateinit var durationText: TextView
@@ -104,6 +110,9 @@ class PlayerActivity : BaseActivity() {
 
     private val subtitlePreferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
     private val recentPlaybackStore by lazy { RecentPlaybackStore(this) }
+    private val settingsRepository by lazy { SettingsRepository(this) }
+    private var autoPipEnabled = false
+    private var supportsPictureInPicture = false
     private var subtitleEnabled = false
     private var preferredSubtitleLanguage: String? = null
     private var preferredSubtitleEncoding = ENCODING_UTF8
@@ -159,6 +168,7 @@ class PlayerActivity : BaseActivity() {
         prevButton = findViewById(R.id.prevButton)
         nextButton = findViewById(R.id.nextButton)
         rotateButton = findViewById(R.id.rotateButton)
+        pipButton = findViewById(R.id.pipButton)
         seekBar = findViewById(R.id.seekBar)
         positionText = findViewById(R.id.positionText)
         durationText = findViewById(R.id.durationText)
@@ -176,6 +186,8 @@ class PlayerActivity : BaseActivity() {
         if (audioManager != null) {
             maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 0
         }
+        supportsPictureInPicture =
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
 
         swipeThresholdPx = resources.displayMetrics.density * 8f
         gestureDetector = GestureDetector(this, GestureListener())
@@ -184,6 +196,7 @@ class PlayerActivity : BaseActivity() {
         prevButton.setOnClickListener { playPrevious() }
         nextButton.setOnClickListener { playNext() }
         rotateButton.setOnClickListener { toggleOrientation() }
+        pipButton.setOnClickListener { enterPipMode() }
         subtitleButton.setOnClickListener { showSubtitleSettingsDialog() }
         speedButton.setOnClickListener { showSpeedDialog() }
         repeatButton.setOnClickListener { toggleRepeatMode() }
@@ -247,6 +260,7 @@ class PlayerActivity : BaseActivity() {
         updateShuffleButton()
         updateNavigationButtons()
         updateSpeedButtonLabel()
+        refreshPipSettings()
         if (userOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
             requestedOrientation = userOrientation
         } else {
@@ -257,8 +271,21 @@ class PlayerActivity : BaseActivity() {
     override fun onStart() {
         super.onStart()
         initializePlayer()
+        updatePictureInPictureParams()
         uiHandler.post(progressUpdater)
         scheduleOverlayHide()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshPipSettings()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (autoPipEnabled && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            enterPipMode()
+        }
     }
 
     override fun onStop() {
@@ -285,6 +312,20 @@ class PlayerActivity : BaseActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             hideSystemUi()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            uiHandler.removeCallbacks(hideOverlayRunnable)
+            overlayContainer.visibility = View.GONE
+            resumeButton.visibility = View.GONE
+        } else {
+            showOverlay()
         }
     }
 
@@ -368,6 +409,7 @@ class PlayerActivity : BaseActivity() {
         player?.play()
         updatePlayPauseIcon(true)
         updateNavigationButtons()
+        updatePictureInPictureParams()
     }
 
     private fun handlePlaybackIntent(newIntent: Intent) {
@@ -418,6 +460,51 @@ class PlayerActivity : BaseActivity() {
         activePlayer.play()
         updatePlayPauseIcon(true)
         updatePlaybackUi()
+        updatePictureInPictureParams()
+    }
+
+    private fun refreshPipSettings() {
+        autoPipEnabled = settingsRepository.load().autoPipEnabled
+        pipButton.visibility = if (supportsPictureInPicture) View.VISIBLE else View.GONE
+        pipButton.isEnabled = supportsPictureInPicture
+        val pipColor = if (autoPipEnabled) {
+            getColor(R.color.brand_green)
+        } else {
+            getColor(android.R.color.white)
+        }
+        pipButton.setColorFilter(pipColor)
+        updatePictureInPictureParams()
+    }
+
+    private fun updatePictureInPictureParams() {
+        if (!supportsPictureInPicture) {
+            return
+        }
+        setPictureInPictureParams(createPictureInPictureParams())
+    }
+
+    private fun createPictureInPictureParams(): PictureInPictureParams {
+        val builder = PictureInPictureParams.Builder()
+        if (playerView.width > 0 && playerView.height > 0) {
+            builder.setAspectRatio(Rational(playerView.width, playerView.height))
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(autoPipEnabled)
+        }
+        return builder.build()
+    }
+
+    private fun enterPipMode(): Boolean {
+        if (!supportsPictureInPicture || isInPictureInPictureMode || isFinishing || isDestroyed) {
+            return false
+        }
+        if (player == null) {
+            return false
+        }
+        updatePictureInPictureParams()
+        return runCatching {
+            enterPictureInPictureMode(createPictureInPictureParams())
+        }.getOrDefault(false)
     }
 
     private fun releasePlayer() {
@@ -545,6 +632,7 @@ class PlayerActivity : BaseActivity() {
             isPointInsideView(event, prevButton) ||
             isPointInsideView(event, nextButton) ||
             isPointInsideView(event, rotateButton) ||
+            isPointInsideView(event, pipButton) ||
             isPointInsideView(event, seekBar) ||
             isPointInsideView(event, repeatButton) ||
             isPointInsideView(event, shuffleButton) ||
@@ -1519,6 +1607,13 @@ class PlayerActivity : BaseActivity() {
         const val EXTRA_PLAYLIST_URIS = "extra_playlist_uris"
         const val EXTRA_PLAYLIST_TITLES = "extra_playlist_titles"
         const val EXTRA_PLAYLIST_INDEX = "extra_playlist_index"
+
+        fun createLaunchIntent(context: Context): Intent {
+            return Intent(context, PlayerActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+        }
+
         private const val STATE_USER_ORIENTATION = "state_user_orientation"
         private const val SEEK_JUMP_MS = 10_000L
         private const val SEEK_BACK_BUFFER_MS = 15_000

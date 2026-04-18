@@ -87,6 +87,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun updateAutoPipEnabled(enabled: Boolean) {
+        repository.updateAutoPipEnabled(enabled)
+        val current = settings.value
+        if (current != null) {
+            if (current.autoPipEnabled == enabled) {
+                return
+            }
+            settings.value = current.copy(autoPipEnabled = enabled)
+        } else {
+            refresh()
+        }
+    }
+
     fun updateSearchFolders(folders: Set<String>, useAll: Boolean) {
         repository.updateSearchFolders(folders, useAll)
         val current = settings.value

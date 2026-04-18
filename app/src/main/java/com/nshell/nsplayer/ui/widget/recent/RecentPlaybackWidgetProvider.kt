@@ -79,9 +79,7 @@ class RecentPlaybackWidgetProvider : AppWidgetProvider() {
             views.setRemoteAdapter(R.id.widgetRecentList, serviceIntent)
             views.setEmptyView(R.id.widgetRecentList, R.id.widgetRecentEmpty)
 
-            val templateIntent = Intent(context, PlayerActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
+            val templateIntent = PlayerActivity.createLaunchIntent(context)
             val clickTemplate = PendingIntent.getActivity(
                 context,
                 appWidgetId,

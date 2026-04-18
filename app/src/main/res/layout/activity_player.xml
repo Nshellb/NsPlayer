@@ -150,9 +150,19 @@
                     android:layout_weight="1" />
 
                 <ImageButton
+                    android:id="@+id/pipButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/playback_pip"
+                    android:src="@drawable/ic_pip"
+                    android:tint="@android:color/white" />
+
+                <ImageButton
                     android:id="@+id/repeatButton"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
+                    android:layout_marginStart="8dp"
                     android:background="@android:color/transparent"
                     android:contentDescription="@string/playback_repeat_off"
                     android:src="@drawable/ic_repeat"
@@ -200,6 +210,7 @@
                     android:contentDescription="Rotate"
                     android:src="@drawable/ic_rotate"
                     android:tint="@android:color/white" />
+
             </LinearLayout>
         </LinearLayout>
     </FrameLayout>

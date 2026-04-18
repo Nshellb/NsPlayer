@@ -1,6 +1,5 @@
 package com.nshell.nsplayer.ui.main
 
-import android.content.Intent
 import com.nshell.nsplayer.ui.player.PlayerActivity
 
 internal fun MainActivity.onItemSelected(item: DisplayItem) {
@@ -31,7 +30,7 @@ internal fun MainActivity.onItemSelected(item: DisplayItem) {
             if (uri.isNullOrEmpty()) {
                 return
             }
-            val intent = Intent(this, PlayerActivity::class.java)
+            val intent = PlayerActivity.createLaunchIntent(this)
             intent.putExtra(PlayerActivity.EXTRA_URI, uri)
             intent.putExtra(PlayerActivity.EXTRA_TITLE, item.title)
             startActivity(intent)
