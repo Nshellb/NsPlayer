@@ -21,6 +21,7 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.SeekBar
 import android.widget.TextView
+import com.nshell.nsplayer.data.recent.RecentPlaybackStore
 import com.nshell.nsplayer.ui.base.BaseActivity
 import com.nshell.nsplayer.R
 import androidx.activity.result.contract.ActivityResultContracts
@@ -102,6 +103,7 @@ class PlayerActivity : BaseActivity() {
     private var userOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
     private val subtitlePreferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
+    private val recentPlaybackStore by lazy { RecentPlaybackStore(this) }
     private var subtitleEnabled = false
     private var preferredSubtitleLanguage: String? = null
     private var preferredSubtitleEncoding = ENCODING_UTF8
@@ -268,6 +270,7 @@ class PlayerActivity : BaseActivity() {
         uiHandler.removeCallbacks(showLoadingSpinnerRunnable)
         pendingLoadingSpinner = false
         loadingSpinner.visibility = View.GONE
+        saveRecentPlaybackSnapshot()
         saveResumePosition()
         releasePlayer()
         clearSubtitleCache()
@@ -283,6 +286,11 @@ class PlayerActivity : BaseActivity() {
         if (hasFocus) {
             hideSystemUi()
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handlePlaybackIntent(intent)
     }
 
     private fun initializePlayer() {
@@ -336,6 +344,7 @@ class PlayerActivity : BaseActivity() {
                     loadSubtitlePreferences()
                     updateSubtitleButtonState()
                 }
+                recordRecentPlayback(entry.uri, entry.title, 0L, 0L)
                 updateNavigationButtons()
             }
 
@@ -359,6 +368,56 @@ class PlayerActivity : BaseActivity() {
         player?.play()
         updatePlayPauseIcon(true)
         updateNavigationButtons()
+    }
+
+    private fun handlePlaybackIntent(newIntent: Intent) {
+        if (!::titleText.isInitialized) {
+            setIntent(newIntent)
+            return
+        }
+        if (::videoUri.isInitialized) {
+            saveRecentPlaybackSnapshot()
+            saveResumePosition()
+        }
+        setIntent(newIntent)
+        if (!loadPlaylistFromIntent()) {
+            return
+        }
+        titleText.text = playlistEntries.getOrNull(playlistIndex)?.title ?: titleText.text
+        pendingResumePrompt = false
+        uiHandler.removeCallbacks(hideResumeButtonRunnable)
+        resumeButton.visibility = View.GONE
+        clearSubtitleCache()
+        selectedSubtitle = null
+        loadSubtitlePreferences()
+        loadPlaybackOptions()
+        loadPlaybackSpeed()
+        subtitleCandidates = loadSubtitleCandidates(videoUri)
+        updateSubtitleButtonState()
+        updateRepeatButton()
+        updateShuffleButton()
+        updateNavigationButtons()
+        updateSpeedButtonLabel()
+        if (userOrientation == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+            applyAutoOrientation(videoUri)
+        }
+
+        val activePlayer = player ?: return
+        val resumePosition = resolveResumePosition()
+        val items = buildMediaItems()
+        val startIndex = playlistIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+        if (resumePosition > 0L) {
+            activePlayer.setMediaItems(items, startIndex, resumePosition)
+        } else {
+            activePlayer.setMediaItems(items, startIndex, 0L)
+        }
+        activePlayer.prepare()
+        applySubtitleEnabled(subtitleEnabled)
+        applyPlaybackOptions()
+        applyPlaybackSpeed()
+        activePlayer.play()
+        updatePlayPauseIcon(true)
+        updatePlaybackUi()
     }
 
     private fun releasePlayer() {
@@ -922,6 +981,22 @@ class PlayerActivity : BaseActivity() {
             .putLong(resumePositionKey(videoUri), position)
             .putLong(resumeDurationKey(videoUri), if (duration == C.TIME_UNSET) 0L else duration)
             .apply()
+    }
+
+    private fun saveRecentPlaybackSnapshot() {
+        val activePlayer = player ?: return
+        if (!::videoUri.isInitialized) {
+            return
+        }
+        val duration = activePlayer.duration
+        val safeDuration = if (duration == C.TIME_UNSET || duration < 0L) 0L else duration
+        val title = titleText.text?.toString()?.takeIf { it.isNotBlank() }
+            ?: playlistEntries.getOrNull(playlistIndex)?.title.orEmpty()
+        recordRecentPlayback(videoUri, title, activePlayer.currentPosition, safeDuration)
+    }
+
+    private fun recordRecentPlayback(uri: Uri, title: String, positionMs: Long, durationMs: Long) {
+        recentPlaybackStore.recordPlayback(uri, title, positionMs, durationMs)
     }
 
     private fun clearResumePosition() {

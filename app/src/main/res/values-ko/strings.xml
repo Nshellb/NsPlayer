@@ -167,4 +167,9 @@
     <string name="conflict_rename">이름변경</string>
     <string name="conflict_skip">건너뛰기</string>
     <string name="conflict_apply_all">현재 작업의 모든 충돌에 동일 적용</string>
+    <string name="widget_recent_playback_title">최근 재생</string>
+    <string name="widget_recent_empty">최근 재생 항목이 없습니다.</string>
+    <string name="widget_recent_subtitle_recent">최근 재생</string>
+    <string name="widget_recent_subtitle_resume">이어보기 %1$s</string>
+    <string name="widget_recent_subtitle_resume_with_duration">이어보기 %1$s / %2$s</string>
 </resources>

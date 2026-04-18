@@ -32,6 +32,7 @@
         <activity
             android:name=".ui.player.PlayerActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -49,6 +50,23 @@
         <activity
             android:name=".ui.settings.searchfolders.SearchFoldersActivity"
             android:exported="false" />
+
+        <receiver
+            android:name=".ui.widget.recent.RecentPlaybackWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_recent_playback_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/recent_playback_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".ui.widget.recent.RecentPlaybackWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
     </application>
 
 </manifest>

@@ -167,4 +167,9 @@
     <string name="conflict_rename">Rename</string>
     <string name="conflict_skip">Skip</string>
     <string name="conflict_apply_all">Apply to all conflicts</string>
+    <string name="widget_recent_playback_title">Recent playback</string>
+    <string name="widget_recent_empty">No recently played videos.</string>
+    <string name="widget_recent_subtitle_recent">Recently played</string>
+    <string name="widget_recent_subtitle_resume">Resume %1$s</string>
+    <string name="widget_recent_subtitle_resume_with_duration">Resume %1$s / %2$s</string>
 </resources>
