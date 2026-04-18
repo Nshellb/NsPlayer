@@ -101,9 +101,28 @@ internal fun MainActivity.renderItems(items: List<DisplayItem>?) {
         emptyText.visibility = View.GONE
         return
     }
-    adapter.submit(items)
+    adapter.submit(items) {
+        restoreTransientUiStateIfNeeded()
+    }
     val isEmpty = items.isEmpty()
     emptyText.visibility = if (isEmpty) View.VISIBLE else View.GONE
+}
+
+internal fun MainActivity.restoreTransientUiStateIfNeeded() {
+    pendingRestoredSelectionKeys?.let { keys ->
+        if (keys.isEmpty()) {
+            pendingRestoredSelectionKeys = null
+        } else if (adapter.currentList.isNotEmpty()) {
+            adapter.restoreSelection(keys)
+            pendingRestoredSelectionKeys = null
+        }
+    }
+    pendingListLayoutState?.let { state ->
+        if (adapter.currentList.isNotEmpty()) {
+            list.layoutManager?.onRestoreInstanceState(state)
+            pendingListLayoutState = null
+        }
+    }
 }
 
 internal fun MainActivity.renderLoading(loading: Boolean?) {
@@ -121,21 +140,27 @@ internal fun MainActivity.renderLoading(loading: Boolean?) {
 }
 
 internal fun MainActivity.applySettings(settings: SettingsState) {
-    val nomediaChanged = browserState.nomediaEnabled != settings.nomediaEnabled
+    val current = viewModel.getState().value ?: browserState
+    val nomediaChanged = current.nomediaEnabled != settings.nomediaEnabled
     val searchChanged =
-        browserState.searchFoldersUseAll != settings.searchFoldersUseAll ||
-            browserState.searchFolders != settings.searchFolders
+        current.searchFoldersUseAll != settings.searchFoldersUseAll ||
+            current.searchFolders != settings.searchFolders
+    val shouldApplyInitialMode = !initialSettingsApplied && !restoredFromSavedState
     adapter.setVisibleItems(settings.visibleItems)
     viewModel.updateState {
         it.copy(
-            currentMode = settings.mode,
+            currentMode = if (shouldApplyInitialMode) settings.mode else it.currentMode,
             videoDisplayMode = settings.displayMode,
             tileSpanCount = settings.tileSpanCount,
             sortMode = settings.sortMode,
             sortOrder = settings.sortOrder,
             nomediaEnabled = settings.nomediaEnabled,
             searchFoldersUseAll = settings.searchFoldersUseAll,
-            searchFolders = settings.searchFolders
+            searchFolders = settings.searchFolders,
+            inFolderVideos = if (shouldApplyInitialMode) false else it.inFolderVideos,
+            selectedBucketId = if (shouldApplyInitialMode) null else it.selectedBucketId,
+            selectedBucketName = if (shouldApplyInitialMode) null else it.selectedBucketName,
+            hierarchyPath = if (shouldApplyInitialMode) "" else it.hierarchyPath
         )
     }
     if (!initialSettingsApplied) {

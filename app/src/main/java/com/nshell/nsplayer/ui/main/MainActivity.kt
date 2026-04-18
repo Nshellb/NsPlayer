@@ -3,6 +3,7 @@ package com.nshell.nsplayer.ui.main
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.os.Parcelable
 import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
@@ -45,6 +46,9 @@ class MainActivity : BaseActivity() {
     internal lateinit var refreshLayout: SwipeRefreshLayout
     internal var browserState = VideoBrowserState()
     internal var initialSettingsApplied = false
+    internal var restoredFromSavedState = false
+    internal var pendingRestoredSelectionKeys: ArrayList<String>? = null
+    internal var pendingListLayoutState: Parcelable? = null
     internal var pendingRename: RenameRequest? = null
     internal var pendingFolderRename: FolderRenameRequest? = null
     internal val preferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
@@ -142,7 +146,8 @@ class MainActivity : BaseActivity() {
         }
 
         viewModel = ViewModelProvider(this)[VideoBrowserViewModel::class.java]
-        restoreNavigationState(savedInstanceState)
+        restoredFromSavedState = restoreNavigationState(savedInstanceState)
+        restoreTransientUiState(savedInstanceState)
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
         viewModel.getItems().observe(this) { renderItems(it) }
         viewModel.getLoading().observe(this) { renderLoading(it) }
@@ -247,6 +252,13 @@ class MainActivity : BaseActivity() {
         outState.putString(STATE_BUCKET_ID, current.selectedBucketId)
         outState.putString(STATE_BUCKET_NAME, current.selectedBucketName)
         outState.putString(STATE_HIERARCHY_PATH, current.hierarchyPath)
+        val selectedKeys = adapter.getSelectedKeys()
+        if (selectedKeys.isNotEmpty()) {
+            outState.putStringArrayList(STATE_SELECTION_KEYS, selectedKeys)
+        }
+        list.layoutManager?.onSaveInstanceState()?.let { state ->
+            outState.putParcelable(STATE_LIST_LAYOUT, state)
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -374,14 +386,16 @@ class MainActivity : BaseActivity() {
         private const val STATE_BUCKET_ID = "state_bucket_id"
         private const val STATE_BUCKET_NAME = "state_bucket_name"
         private const val STATE_HIERARCHY_PATH = "state_hierarchy_path"
+        private const val STATE_SELECTION_KEYS = "state_selection_keys"
+        private const val STATE_LIST_LAYOUT = "state_list_layout"
     }
 
-    private fun restoreNavigationState(savedInstanceState: Bundle?) {
+    private fun restoreNavigationState(savedInstanceState: Bundle?): Boolean {
         if (savedInstanceState == null) {
-            return
+            return false
         }
-        val modeName = savedInstanceState.getString(STATE_MODE) ?: return
-        val mode = runCatching { VideoMode.valueOf(modeName) }.getOrNull() ?: return
+        val modeName = savedInstanceState.getString(STATE_MODE) ?: return false
+        val mode = runCatching { VideoMode.valueOf(modeName) }.getOrNull() ?: return false
         val hierarchyPath = savedInstanceState.getString(STATE_HIERARCHY_PATH) ?: ""
         val bucketId = savedInstanceState.getString(STATE_BUCKET_ID)
         val bucketName = savedInstanceState.getString(STATE_BUCKET_NAME)
@@ -397,5 +411,16 @@ class MainActivity : BaseActivity() {
                 hierarchyPath = if (mode == VideoMode.HIERARCHY) hierarchyPath else ""
             )
         }
+        return true
+    }
+
+    private fun restoreTransientUiState(savedInstanceState: Bundle?) {
+        if (savedInstanceState == null) {
+            return
+        }
+        pendingRestoredSelectionKeys = savedInstanceState.getStringArrayList(STATE_SELECTION_KEYS)
+        @Suppress("DEPRECATION")
+        val layoutState = savedInstanceState.getParcelable<Parcelable>(STATE_LIST_LAYOUT)
+        pendingListLayoutState = layoutState
     }
 }

@@ -38,7 +38,7 @@ class VideoListAdapter :
         fun onSelectionChanged(selectedCount: Int, selectionMode: Boolean)
     }
 
-    private val selectedPositions = mutableSetOf<Int>()
+    private val selectedKeys = mutableSetOf<String>()
     private var videoDisplayMode = VideoDisplayMode.LIST
     private var clickListener: OnItemClickListener? = null
     private var overflowClickListener: OnItemOverflowClickListener? = null
@@ -51,13 +51,28 @@ class VideoListAdapter :
         DateFormat.SHORT
     )
 
-    fun submit(nextItems: List<DisplayItem>?) {
-        val hadSelection = selectedPositions.isNotEmpty()
-        clearSelectionInternal()
-        if (hadSelection) {
-            notifyDataSetChanged()
+    fun submit(nextItems: List<DisplayItem>?, onCommitted: (() -> Unit)? = null) {
+        val nextList = nextItems?.toList() ?: emptyList()
+        val previousSelectionCount = selectedKeys.size
+        val previousSelectionMode = selectionMode
+        val nextKeys = nextList.asSequence()
+            .mapNotNull { selectionKeyOf(it) }
+            .toSet()
+        if (selectedKeys.isNotEmpty()) {
+            selectedKeys.retainAll(nextKeys)
         }
-        submitList(nextItems?.toList() ?: emptyList())
+        selectionMode = selectedKeys.isNotEmpty()
+        val selectionChanged = previousSelectionMode != selectionMode ||
+            previousSelectionCount != selectedKeys.size
+        submitList(nextList) {
+            if (previousSelectionCount > 0 || selectedKeys.isNotEmpty()) {
+                notifyDataSetChanged()
+            }
+            if (selectionChanged) {
+                notifySelectionChanged()
+            }
+            onCommitted?.invoke()
+        }
     }
 
     fun setVideoDisplayMode(mode: VideoDisplayMode?) {
@@ -95,25 +110,67 @@ class VideoListAdapter :
 
     fun isSelectionMode(): Boolean = selectionMode
 
-    fun getSelectedCount(): Int = selectedPositions.size
+    fun getSelectedCount(): Int = selectedKeys.size
 
-    fun isAllSelected(): Boolean =
-        currentList.isNotEmpty() && selectedPositions.size == currentList.size
+    fun isAllSelected(): Boolean {
+        if (currentList.isEmpty()) {
+            return false
+        }
+        var selectableCount = 0
+        for (item in currentList) {
+            val key = selectionKeyOf(item) ?: continue
+            selectableCount++
+            if (!selectedKeys.contains(key)) {
+                return false
+            }
+        }
+        return selectableCount > 0 && selectedKeys.size == selectableCount
+    }
 
     fun getSelectedItems(): List<DisplayItem> {
-        if (selectedPositions.isEmpty()) {
+        if (selectedKeys.isEmpty()) {
             return emptyList()
         }
-        val items = currentList
-        return selectedPositions.sorted().mapNotNull { index -> items.getOrNull(index) }
+        return currentList.filter { item ->
+            val key = selectionKeyOf(item)
+            key != null && selectedKeys.contains(key)
+        }
+    }
+
+    fun getSelectedKeys(): ArrayList<String> = ArrayList(selectedKeys)
+
+    fun restoreSelection(keys: Collection<String>) {
+        if (keys.isEmpty()) {
+            if (selectedKeys.isNotEmpty() || selectionMode) {
+                clearSelectionInternal()
+                notifyDataSetChanged()
+            }
+            return
+        }
+        val currentKeys = currentList.asSequence()
+            .mapNotNull { selectionKeyOf(it) }
+            .toSet()
+        val next = keys.asSequence()
+            .filter { currentKeys.contains(it) }
+            .toSet()
+        val changed = selectedKeys != next || selectionMode != next.isNotEmpty()
+        if (!changed) {
+            return
+        }
+        selectedKeys.clear()
+        selectedKeys.addAll(next)
+        selectionMode = selectedKeys.isNotEmpty()
+        notifySelectionChanged()
+        notifyDataSetChanged()
     }
 
     fun selectAll() {
-        selectionMode = true
-        selectedPositions.clear()
-        for (i in currentList.indices) {
-            selectedPositions.add(i)
+        selectedKeys.clear()
+        for (item in currentList) {
+            val key = selectionKeyOf(item) ?: continue
+            selectedKeys.add(key)
         }
+        selectionMode = selectedKeys.isNotEmpty()
         notifySelectionChanged()
         notifyDataSetChanged()
     }
@@ -125,23 +182,25 @@ class VideoListAdapter :
 
     private fun clearSelectionInternal() {
         selectionMode = false
-        selectedPositions.clear()
+        selectedKeys.clear()
         notifySelectionChanged()
     }
 
     private fun toggleSelection(position: Int) {
-        if (selectedPositions.contains(position)) {
-            selectedPositions.remove(position)
+        val item = currentList.getOrNull(position) ?: return
+        val key = selectionKeyOf(item) ?: return
+        if (selectedKeys.contains(key)) {
+            selectedKeys.remove(key)
         } else {
-            selectedPositions.add(position)
+            selectedKeys.add(key)
         }
-        selectionMode = selectedPositions.isNotEmpty()
+        selectionMode = selectedKeys.isNotEmpty()
         notifySelectionChanged()
         notifyItemChanged(position)
     }
 
     private fun notifySelectionChanged() {
-        selectionChangedListener?.onSelectionChanged(selectedPositions.size, selectionMode)
+        selectionChangedListener?.onSelectionChanged(selectedKeys.size, selectionMode)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -182,7 +241,7 @@ class VideoListAdapter :
             bindDefault(holder, item)
         }
 
-        val selected = selectedPositions.contains(position)
+        val selected = selectionKeyOf(item)?.let { selectedKeys.contains(it) } == true
         holder.itemView.setBackgroundColor(
             if (selected) holder.itemView.context.getColor(R.color.selection_bg) else Color.TRANSPARENT
         )
@@ -487,6 +546,27 @@ class VideoListAdapter :
             String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
         } else {
             String.format(Locale.US, "%d:%02d", minutes, seconds)
+        }
+    }
+
+    private fun selectionKeyOf(item: DisplayItem): String? {
+        return when (item.type) {
+            DisplayItem.Type.VIDEO -> {
+                val uri = item.contentUri
+                if (!uri.isNullOrEmpty()) {
+                    "video:$uri"
+                } else {
+                    "video:${item.title}:${item.modifiedSeconds}:${item.sizeBytes}"
+                }
+            }
+            DisplayItem.Type.FOLDER -> {
+                val id = item.bucketId?.takeIf { it.isNotEmpty() } ?: item.title
+                "folder:$id"
+            }
+            DisplayItem.Type.HIERARCHY -> {
+                val id = item.bucketId?.takeIf { it.isNotEmpty() } ?: item.title
+                "hierarchy:$id"
+            }
         }
     }
 
