@@ -1100,15 +1100,33 @@ class PlayerActivity : BaseActivity() {
                 .coerceIn(0, playlistEntries.lastIndex)
         } else {
             val uriText = intent.getStringExtra(EXTRA_URI)
-            if (uriText == null) {
-                return false
+            if (uriText != null) {
+                val title = intent.getStringExtra(EXTRA_TITLE) ?: ""
+                playlistEntries = listOf(PlaylistEntry(Uri.parse(uriText), title))
+                playlistIndex = 0
+            } else {
+                val externalEntry = buildExternalViewEntry(intent) ?: return false
+                playlistEntries = listOf(externalEntry)
+                playlistIndex = 0
             }
-            val title = intent.getStringExtra(EXTRA_TITLE) ?: ""
-            playlistEntries = listOf(PlaylistEntry(Uri.parse(uriText), title))
-            playlistIndex = 0
         }
         videoUri = playlistEntries[playlistIndex].uri
         return true
+    }
+
+    private fun buildExternalViewEntry(sourceIntent: Intent): PlaylistEntry? {
+        if (sourceIntent.action != Intent.ACTION_VIEW) {
+            return null
+        }
+        val uri = sourceIntent.data ?: return null
+        val scheme = uri.scheme?.lowercase(Locale.US)
+        if (scheme != "content" && scheme != "file") {
+            return null
+        }
+        val title = queryDisplayName(uri)
+            ?: uri.lastPathSegment?.substringAfterLast('/')
+            ?: ""
+        return PlaylistEntry(uri, title)
     }
 
     private data class PlaylistEntry(
