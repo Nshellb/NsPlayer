@@ -174,4 +174,6 @@
     <string name="widget_recent_subtitle_recent">최근 재생</string>
     <string name="widget_recent_subtitle_resume">이어보기 %1$s</string>
     <string name="widget_recent_subtitle_resume_with_duration">이어보기 %1$s / %2$s</string>
+    <string name="admob_app_id" translatable="false">ca-app-pub-3776536112737224~3409315519</string>
+    <string name="admob_banner_main_bottom" translatable="false">ca-app-pub-3776536112737224/9901106639</string>
 </resources>
