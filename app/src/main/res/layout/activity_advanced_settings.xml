@@ -142,7 +142,8 @@
             android:id="@+id/advancedTranslationEngineContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:visibility="gone">
 
             <LinearLayout
                 android:id="@+id/advancedTranslationEngineRow"
@@ -183,7 +184,8 @@
             android:layout_marginTop="12dp"
             android:layout_marginBottom="12dp"
             android:background="?android:attr/textColorSecondary"
-            android:alpha="0.12" />
+            android:alpha="0.12"
+            android:visibility="gone" />
 
         <include
             android:id="@+id/advancedInquiryRow"
