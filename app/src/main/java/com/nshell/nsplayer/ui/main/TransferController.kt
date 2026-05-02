@@ -9,6 +9,7 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.text.format.Formatter
 import android.app.Activity
+import android.webkit.MimeTypeMap
 import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -203,12 +204,17 @@ class TransferController(
         }
         val cancelFlag = AtomicBoolean(false)
         val conflictState = ConflictDecisionState()
+        val targetVolumePath = queryTreeVolumePath(treeUri)
         val sizePlan = calculateCopySizePlan(items)
         val progressUi = showCopyProgress(items.size, sizePlan.totalBytes, cancelFlag, operation)
         Thread {
             var successCount = 0
             var failCount = 0
             var skipCount = 0
+            var failMissingSourceUri = 0
+            var failOverwriteDelete = 0
+            var failCreateTarget = 0
+            var failCopyStream = 0
             var completed = 0
             var copiedBytes = 0L
             var lastUpdate = 0L
@@ -221,6 +227,7 @@ class TransferController(
                 if (srcUri == null) {
                     currentFileName = item.title
                     failCount++
+                    failMissingSourceUri++
                     completed++
                     updateCopyProgress(
                         progressUi,
@@ -237,7 +244,27 @@ class TransferController(
                 }
                 val displayName = queryDisplayName(srcUri) ?: item.title
                 currentFileName = displayName
-                val mimeType = activity.contentResolver.getType(srcUri) ?: "video/*"
+                if (
+                    (operation == TransferOperation.MOVE || operation == TransferOperation.COPY) &&
+                    targetVolumePath != null &&
+                    isSameDirectoryMove(srcUri, targetVolumePath)
+                ) {
+                    skipCount++
+                    completed++
+                    updateCopyProgress(
+                        progressUi,
+                        completed,
+                        items.size,
+                        successCount,
+                        failCount,
+                        skipCount,
+                        copiedBytes,
+                        sizePlan.totalBytes,
+                        currentFileName
+                    )
+                    continue
+                }
+                val mimeType = resolveMimeType(srcUri, displayName)
                 val resolution = resolveTargetFile(root, displayName, cancelFlag, conflictState)
                 if (resolution == null) {
                     skipCount++
@@ -255,25 +282,14 @@ class TransferController(
                     )
                     continue
                 }
-                if (resolution.overwriteFailed) {
-                    failCount++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
+                if (resolution.overwriteDeleteFailed) {
+                    failOverwriteDelete++
                 }
-                val targetFile = root.createFile(mimeType, resolution.targetName)
+                val targetFile = resolution.reusableTarget
+                    ?: createTargetDocumentFile(root, mimeType, resolution.targetName)
                 if (targetFile == null) {
                     failCount++
+                    failCreateTarget++
                     completed++
                     updateCopyProgress(
                         progressUi,
@@ -321,9 +337,8 @@ class TransferController(
                     }
                 } else {
                     failCount++
-                    if (!cancelFlag.get()) {
-                        targetFile.delete()
-                    }
+                    failCopyStream++
+                    deleteDocumentFile(targetFile)
                 }
                 completed++
                 updateCopyProgress(
@@ -349,6 +364,7 @@ class TransferController(
                     Toast.makeText(activity, cancelMessage, Toast.LENGTH_SHORT).show()
                     adapter.clearSelection()
                     pendingCopyItems = emptyList()
+                    onReloadRequested()
                     return@runOnUiThread
                 }
                 if (operation == TransferOperation.MOVE) {
@@ -381,7 +397,12 @@ class TransferController(
                     } else if (successCount == 0 && failCount > 0) {
                         Toast.makeText(
                             activity,
-                            activity.getString(R.string.copy_failed),
+                            buildCopyFailedMessage(
+                                failMissingSourceUri,
+                                failOverwriteDelete,
+                                failCreateTarget,
+                                failCopyStream
+                            ),
                             Toast.LENGTH_SHORT
                         ).show()
                     } else {
@@ -436,7 +457,7 @@ class TransferController(
     ): Boolean {
         return try {
             activity.contentResolver.openInputStream(sourceUri)?.use { input ->
-                activity.contentResolver.openOutputStream(target.uri)?.use { output ->
+                openOutputStreamForOverwrite(target.uri)?.use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var read = input.read(buffer)
                     while (read >= 0) {
@@ -456,6 +477,266 @@ class TransferController(
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun openOutputStreamForOverwrite(uri: Uri): java.io.OutputStream? {
+        val resolver = activity.contentResolver
+        val modes = arrayOf("rwt", "wt", "w")
+        for (mode in modes) {
+            try {
+                val output = resolver.openOutputStream(uri, mode)
+                if (output != null) {
+                    return output
+                }
+            } catch (_: Exception) {
+            }
+        }
+        return try {
+            resolver.openOutputStream(uri)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun deleteDocumentFile(file: DocumentFile): Boolean {
+        repeat(DELETE_RETRY_COUNT) { attempt ->
+            val deleted = try {
+                file.delete()
+            } catch (_: Exception) {
+                false
+            }
+            if (deleted) {
+                return true
+            }
+            if (attempt < DELETE_RETRY_COUNT - 1) {
+                try {
+                    Thread.sleep(DELETE_RETRY_DELAY_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+        }
+        return false
+    }
+
+    private fun resolveMimeType(sourceUri: Uri, displayName: String): String {
+        val direct = activity.contentResolver.getType(sourceUri)
+        if (!direct.isNullOrEmpty() && !direct.endsWith("/*")) {
+            return direct
+        }
+        val byName = guessMimeTypeFromName(displayName)
+        if (!byName.isNullOrEmpty()) {
+            return byName
+        }
+        return if (!direct.isNullOrEmpty()) {
+            direct
+        } else {
+            "application/octet-stream"
+        }
+    }
+
+    private fun guessMimeTypeFromName(displayName: String): String? {
+        val ext = displayName.substringAfterLast('.', "").lowercase()
+        if (ext.isEmpty()) {
+            return null
+        }
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+    }
+
+    private fun createTargetDocumentFile(
+        parent: DocumentFile,
+        mimeType: String,
+        targetName: String
+    ): DocumentFile? {
+        val nameParts = parseTargetName(targetName)
+        val knownUris = parent.listFiles().map { it.uri.toString() }.toHashSet()
+        repeat(CREATE_RETRY_COUNT) { attempt ->
+            tryCreateWithDocumentFile(parent, mimeType, nameParts)?.let { return it }
+            tryCreateWithDocumentsContract(parent, mimeType, nameParts)?.let { return it }
+            findCreatedCandidate(parent, nameParts, knownUris)?.let { return it }
+            if (attempt < CREATE_RETRY_COUNT - 1) {
+                try {
+                    Thread.sleep(CREATE_RETRY_DELAY_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return null
+                }
+            }
+        }
+        return null
+    }
+
+    private fun tryCreateWithDocumentFile(
+        parent: DocumentFile,
+        mimeType: String,
+        nameParts: TargetNameParts
+    ): DocumentFile? {
+        for (createName in createNameCandidates(nameParts)) {
+            try {
+                val created = parent.createFile(mimeType, createName)
+                if (created != null) {
+                    normalizeCreatedFileName(parent, created, nameParts)?.let { return it }
+                    return created
+                }
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
+
+    private fun tryCreateWithDocumentsContract(
+        parent: DocumentFile,
+        mimeType: String,
+        nameParts: TargetNameParts
+    ): DocumentFile? {
+        val parentDocumentUri = buildParentDocumentUri(parent.uri)
+        for (createName in createNameCandidates(nameParts)) {
+            try {
+                val createdUri = DocumentsContract.createDocument(
+                    activity.contentResolver,
+                    parentDocumentUri,
+                    mimeType,
+                    createName
+                ) ?: continue
+                DocumentFile.fromSingleUri(activity, createdUri)?.let { created ->
+                    normalizeCreatedFileName(parent, created, nameParts)?.let { return it }
+                    return created
+                }
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
+
+    private fun buildParentDocumentUri(parentUri: Uri): Uri {
+        return try {
+            val treeDocumentId = DocumentsContract.getTreeDocumentId(parentUri)
+            DocumentsContract.buildDocumentUriUsingTree(parentUri, treeDocumentId)
+        } catch (_: Exception) {
+            parentUri
+        }
+    }
+
+    private fun normalizeCreatedFileName(
+        parent: DocumentFile,
+        created: DocumentFile,
+        nameParts: TargetNameParts
+    ): DocumentFile? {
+        val createdName = created.name ?: return null
+        if (createdName == nameParts.targetName) {
+            return created
+        }
+        if (nameParts.hasExtension && createdName == nameParts.baseName) {
+            val renamed = try {
+                created.renameTo(nameParts.targetName)
+            } catch (_: Exception) {
+                false
+            }
+            if (renamed) {
+                parent.findFile(nameParts.targetName)?.let { return it }
+                return created
+            }
+        }
+        return null
+    }
+
+    private fun findCreatedCandidate(
+        parent: DocumentFile,
+        nameParts: TargetNameParts,
+        knownUris: Set<String>
+    ): DocumentFile? {
+        val expectedSuffix = ".${nameParts.extensionPart}"
+        val prefix = "${nameParts.baseName} ("
+        for (child in parent.listFiles()) {
+            if (knownUris.contains(child.uri.toString())) {
+                continue
+            }
+            val childName = child.name ?: continue
+            if (childName == nameParts.targetName) {
+                return child
+            }
+            if (!nameParts.hasExtension && childName == nameParts.baseName) {
+                return child
+            }
+            if (childName.startsWith(prefix) && childName.endsWith(expectedSuffix)) {
+                return child
+            }
+        }
+        return null
+    }
+
+    private fun createNameCandidates(nameParts: TargetNameParts): List<String> {
+        val candidates = LinkedHashSet<String>()
+        if (nameParts.hasExtension && nameParts.baseName.isNotEmpty()) {
+            candidates.add(nameParts.baseName)
+        }
+        candidates.add(nameParts.targetName)
+
+        val fallbackBase = stripTrailingCounter(nameParts.baseName)
+        val extSuffix = if (nameParts.hasExtension && nameParts.extensionPart.isNotEmpty()) {
+            ".${nameParts.extensionPart}"
+        } else {
+            ""
+        }
+        for (index in 1..CREATE_NAME_SUFFIX_MAX) {
+            candidates.add("$fallbackBase ($index)$extSuffix")
+        }
+        candidates.add("$fallbackBase (${System.currentTimeMillis()})$extSuffix")
+        return candidates.toList()
+    }
+
+    private fun stripTrailingCounter(baseName: String): String {
+        if (baseName.isEmpty()) {
+            return "copied_file"
+        }
+        val pattern = Regex("""^(.*)\s\(\d+\)$""")
+        val match = pattern.matchEntire(baseName)
+        val stripped = match?.groupValues?.getOrNull(1)?.trim()
+        return if (!stripped.isNullOrEmpty()) {
+            stripped
+        } else {
+            baseName
+        }
+    }
+
+    private fun parseTargetName(targetName: String): TargetNameParts {
+        var safeTarget = targetName.trim().replace('/', '_').replace('\\', '_')
+        if (safeTarget.isEmpty()) {
+            safeTarget = "copied_file"
+        }
+        val dotIndex = safeTarget.lastIndexOf('.')
+        if (dotIndex <= 0 || dotIndex == safeTarget.lastIndex) {
+            return TargetNameParts(
+                targetName = safeTarget,
+                baseName = safeTarget,
+                extensionPart = "",
+                hasExtension = false
+            )
+        }
+        return TargetNameParts(
+            targetName = safeTarget,
+            baseName = safeTarget.substring(0, dotIndex),
+            extensionPart = safeTarget.substring(dotIndex + 1),
+            hasExtension = true
+        )
+    }
+
+    private data class TargetNameParts(
+        val targetName: String,
+        val baseName: String,
+        val extensionPart: String,
+        val hasExtension: Boolean
+    )
+
+    private fun buildCopyFailedMessage(
+        missingSource: Int,
+        overwriteDelete: Int,
+        createTarget: Int,
+        copyStream: Int
+    ): String {
+        val base = activity.getString(R.string.copy_failed)
+        return "$base [src:$missingSource, ovw:$overwriteDelete, create:$createTarget, stream:$copyStream]"
     }
 
     private data class CopySizePlan(
@@ -624,7 +905,8 @@ class TransferController(
 
     private data class ConflictResolution(
         val targetName: String,
-        val overwriteFailed: Boolean
+        val reusableTarget: DocumentFile? = null,
+        val overwriteDeleteFailed: Boolean = false
     )
 
     private data class ConflictDecision(
@@ -650,7 +932,7 @@ class TransferController(
     ): ConflictResolution? {
         val existing = parent.findFile(displayName)
         if (existing == null) {
-            return ConflictResolution(displayName, false)
+            return ConflictResolution(displayName)
         }
         if (cancelFlag.get()) {
             return null
@@ -664,14 +946,19 @@ class TransferController(
         }
         return when (choice) {
             ConflictChoice.OVERWRITE -> {
-                val deleted = try {
-                    existing.delete()
-                } catch (e: Exception) {
-                    false
+                val deleted = deleteDocumentFile(existing)
+                if (deleted) {
+                    ConflictResolution(displayName)
+                } else {
+                    // Some providers are slow or report delete failure; overwrite in-place instead.
+                    ConflictResolution(
+                        targetName = displayName,
+                        reusableTarget = existing,
+                        overwriteDeleteFailed = true
+                    )
                 }
-                ConflictResolution(displayName, !deleted)
             }
-            ConflictChoice.RENAME -> ConflictResolution(buildUniqueName(parent, displayName), false)
+            ConflictChoice.RENAME -> ConflictResolution(buildUniqueName(parent, displayName))
             ConflictChoice.SKIP -> null
         }
     }
@@ -745,6 +1032,50 @@ class TransferController(
         return null
     }
 
+    private fun queryTreeVolumePath(treeUri: Uri): VolumePath? {
+        val documentId = try {
+            DocumentsContract.getTreeDocumentId(treeUri)
+        } catch (_: Exception) {
+            try {
+                DocumentsContract.getDocumentId(treeUri)
+            } catch (_: Exception) {
+                null
+            }
+        } ?: return null
+        val separatorIndex = documentId.indexOf(':')
+        val treeVolumeName = if (separatorIndex >= 0) {
+            documentId.substring(0, separatorIndex)
+        } else {
+            documentId
+        }
+        val treeRelativePath = if (separatorIndex >= 0 && separatorIndex + 1 < documentId.length) {
+            documentId.substring(separatorIndex + 1)
+        } else {
+            ""
+        }
+        return VolumePath(
+            volumeName = resolveMediaStoreVolumeName(treeVolumeName),
+            relativePath = treeRelativePath
+        )
+    }
+
+    private fun isSameDirectoryMove(sourceUri: Uri, targetDirectory: VolumePath): Boolean {
+        val sourcePath = queryVolumePath(sourceUri) ?: return false
+        if (!sourcePath.volumeName.equals(targetDirectory.volumeName, ignoreCase = true)) {
+            return false
+        }
+        val sourceRelative = normalizeRelativeDocPath(sourcePath.relativePath)
+        val targetRelative = normalizeRelativeDocPath(targetDirectory.relativePath)
+        return sourceRelative.equals(targetRelative, ignoreCase = true)
+    }
+
+    private fun resolveMediaStoreVolumeName(documentVolumeName: String): String {
+        return when (documentVolumeName.lowercase()) {
+            "primary" -> MediaStore.VOLUME_EXTERNAL_PRIMARY
+            else -> documentVolumeName
+        }
+    }
+
     private fun resolveVolumeName(volumeName: String?): String {
         return if (volumeName.isNullOrEmpty()) {
             MediaStore.VOLUME_EXTERNAL_PRIMARY
@@ -774,6 +1105,11 @@ class TransferController(
         private const val KEY_COPY_TREE_URI = "copy_tree_uri"
         private const val PROGRESS_MAX = 1000
         private const val PROGRESS_UPDATE_MS = 200L
+        private const val DELETE_RETRY_COUNT = 3
+        private const val DELETE_RETRY_DELAY_MS = 80L
+        private const val CREATE_RETRY_COUNT = 3
+        private const val CREATE_RETRY_DELAY_MS = 120L
+        private const val CREATE_NAME_SUFFIX_MAX = 12
     }
 
     private enum class TransferOperation {
