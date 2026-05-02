@@ -95,7 +95,7 @@ class TransferController(
             Toast.makeText(activity, activity.getString(R.string.delete_no_selection), Toast.LENGTH_SHORT).show()
             return
         }
-        AlertDialog.Builder(activity)
+        AlertDialog.Builder(activity, R.style.ThemeOverlay_NsPlayer_Dialog)
             .setTitle(activity.getString(R.string.delete_title))
             .setMessage(activity.getString(R.string.delete_message, videos.size))
             .setPositiveButton(R.string.delete_confirm) { _, _ ->
@@ -506,7 +506,7 @@ class TransferController(
         )
         percentText.text = activity.getString(R.string.copy_progress_percent, 0)
         fileText.text = activity.getString(R.string.copy_progress_file, "-")
-        val dialog = BottomSheetDialog(activity)
+        val dialog = BottomSheetDialog(activity, R.style.ThemeOverlay_NsPlayer_BottomSheetDialog)
         dialog.setContentView(content)
         dialog.setCancelable(false)
         dialog.show()

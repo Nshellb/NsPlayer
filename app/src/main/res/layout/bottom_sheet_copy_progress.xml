@@ -15,7 +15,7 @@
         android:text="@string/copy_progress_title"
         android:textSize="18sp"
         android:textStyle="bold"
-        android:textColor="@android:color/black" />
+        android:textColor="?attr/colorOnSurface" />
 
     <TextView
         android:id="@+id/copyProgressCount"
@@ -24,7 +24,7 @@
         android:layout_marginTop="8dp"
         android:text="@string/copy_progress_count_placeholder"
         android:textSize="14sp"
-        android:textColor="@android:color/darker_gray" />
+        android:textColor="?android:attr/textColorSecondary" />
 
     <TextView
         android:id="@+id/copyProgressSize"
@@ -33,7 +33,7 @@
         android:layout_marginTop="6dp"
         android:text="@string/copy_progress_size_placeholder"
         android:textSize="13sp"
-        android:textColor="@android:color/darker_gray" />
+        android:textColor="?android:attr/textColorSecondary" />
 
     <TextView
         android:id="@+id/copyProgressPercent"
@@ -42,7 +42,7 @@
         android:layout_marginTop="6dp"
         android:text="@string/copy_progress_percent_placeholder"
         android:textSize="13sp"
-        android:textColor="@android:color/darker_gray" />
+        android:textColor="?android:attr/textColorSecondary" />
 
     <TextView
         android:id="@+id/copyProgressFile"
@@ -51,7 +51,7 @@
         android:layout_marginTop="6dp"
         android:text="@string/copy_progress_file_placeholder"
         android:textSize="13sp"
-        android:textColor="@android:color/darker_gray"
+        android:textColor="?android:attr/textColorSecondary"
         android:maxLines="1"
         android:ellipsize="end" />
 

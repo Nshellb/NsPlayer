@@ -103,7 +103,7 @@ internal fun MainActivity.showRenameDialog(item: DisplayItem) {
     } else {
         input.setSelection(0, currentName.length)
     }
-    AlertDialog.Builder(this)
+    AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
         .setTitle(R.string.rename_title)
         .setView(input)
         .setPositiveButton(R.string.confirm) { _, _ ->

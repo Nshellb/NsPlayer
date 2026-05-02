@@ -15,6 +15,14 @@
     </style>
 
     <style name="ThemeOverlay.NsPlayer.Dialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorPrimary">@color/brand_green</item>
+        <item name="colorSecondary">@color/brand_green</item>
+        <item name="colorControlActivated">@color/brand_green</item>
+    </style>
+
+    <style name="ThemeOverlay.NsPlayer.BottomSheetDialog" parent="ThemeOverlay.MaterialComponents.BottomSheetDialog">
+        <item name="colorPrimary">@color/brand_green</item>
+        <item name="colorSecondary">@color/brand_green</item>
         <item name="colorControlActivated">@color/brand_green</item>
     </style>
 </resources>

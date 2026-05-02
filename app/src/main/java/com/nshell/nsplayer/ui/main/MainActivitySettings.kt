@@ -80,7 +80,7 @@ internal fun MainActivity.showSettingsDialog(anchor: View) {
         defaultColor
     )
 
-    val dialog = AlertDialog.Builder(this)
+    val dialog = AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
         .setView(content)
         .create()
     dialog.setCanceledOnTouchOutside(true)
