@@ -21,6 +21,8 @@ class SettingsRepository(context: Context) {
         val themeValue = preferences.getString(KEY_THEME, ThemeMode.SYSTEM.name)
         val nomediaEnabled = preferences.getBoolean(KEY_NOMEDIA, false)
         val autoPipEnabled = preferences.getBoolean(KEY_AUTO_PIP, false)
+        val translationEngineValue =
+            preferences.getString(KEY_TRANSLATION_ENGINE, TranslationEngine.ML_KIT.name)
         val searchFoldersRaw = preferences.getStringSet(KEY_SEARCH_FOLDERS, null)
         val searchFoldersUseAll =
             preferences.getBoolean(KEY_SEARCH_FOLDERS_USE_ALL, searchFoldersRaw == null)
@@ -57,6 +59,9 @@ class SettingsRepository(context: Context) {
         val themeMode = runCatching {
             ThemeMode.valueOf(themeValue ?: ThemeMode.SYSTEM.name)
         }.getOrElse { ThemeMode.SYSTEM }
+        val translationEngine = runCatching {
+            TranslationEngine.valueOf(translationEngineValue ?: TranslationEngine.ML_KIT.name)
+        }.getOrElse { TranslationEngine.ML_KIT }
 
         val state = SettingsState(
             mode = mode,
@@ -68,6 +73,7 @@ class SettingsRepository(context: Context) {
             themeMode = themeMode,
             nomediaEnabled = nomediaEnabled,
             autoPipEnabled = autoPipEnabled,
+            translationEngine = translationEngine,
             searchFoldersUseAll = searchFoldersUseAll,
             searchFolders = searchFolders,
             visibleItems = visibleItems
@@ -114,6 +120,10 @@ class SettingsRepository(context: Context) {
         preferences.edit().putBoolean(KEY_AUTO_PIP, enabled).apply()
     }
 
+    fun updateTranslationEngine(engine: TranslationEngine) {
+        preferences.edit().putString(KEY_TRANSLATION_ENGINE, engine.name).apply()
+    }
+
     fun updateSearchFolders(folders: Set<String>, useAll: Boolean) {
         val editor = preferences.edit()
         editor.putBoolean(KEY_SEARCH_FOLDERS_USE_ALL, useAll)
@@ -144,6 +154,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_THEME = "theme_mode"
         private const val KEY_NOMEDIA = "nomedia_enabled"
         private const val KEY_AUTO_PIP = "auto_pip_enabled"
+        private const val KEY_TRANSLATION_ENGINE = "translation_engine"
         private const val KEY_SEARCH_FOLDERS = "search_folders"
         private const val KEY_SEARCH_FOLDERS_USE_ALL = "search_folders_use_all"
         private const val KEY_VISIBLE_ITEMS = "visible_items"

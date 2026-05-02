@@ -138,6 +138,53 @@
             android:background="?android:attr/textColorSecondary"
             android:alpha="0.12" />
 
+        <LinearLayout
+            android:id="@+id/advancedTranslationEngineContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/advancedTranslationEngineRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/advancedTranslationEngineTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/advanced_settings_translation_engine"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Body1" />
+
+                <Spinner
+                    android:id="@+id/advancedTranslationEngineSpinner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:spinnerMode="dropdown" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/advancedTranslationEngineHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+                android:textColor="?android:attr/textColorSecondary"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <View
+            android:id="@+id/advancedDividerTranslationEngine"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
+            android:background="?android:attr/textColorSecondary"
+            android:alpha="0.12" />
+
         <include
             android:id="@+id/advancedInquiryRow"
             layout="@layout/include_settings_row_chevron" />

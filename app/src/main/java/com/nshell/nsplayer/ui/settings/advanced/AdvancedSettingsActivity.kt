@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.Spinner
@@ -11,6 +12,9 @@ import android.widget.TextView
 import android.widget.Toast
 import android.util.Log
 import android.os.Build
+import android.view.translation.TranslationManager
+import android.view.translation.TranslationSpec
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -20,6 +24,7 @@ import com.nshell.nsplayer.R
 import com.nshell.nsplayer.NsPlayerApp
 import com.nshell.nsplayer.data.settings.ThemeMode
 import com.nshell.nsplayer.data.settings.SettingsState
+import com.nshell.nsplayer.data.settings.TranslationEngine
 import com.nshell.nsplayer.ui.base.BaseActivity
 import com.nshell.nsplayer.data.settings.VisibleItem
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
@@ -33,11 +38,33 @@ class AdvancedSettingsActivity : BaseActivity() {
     private companion object {
         private const val LOG_TAG = "AdvancedSettings"
     }
+
+    private data class TranslationEngineAvailability(
+        val mlKitSupported: Boolean,
+        val systemSupported: Boolean
+    ) {
+        val availableEngines: List<TranslationEngine>
+            get() = buildList {
+                if (mlKitSupported) {
+                    add(TranslationEngine.ML_KIT)
+                }
+                if (systemSupported) {
+                    add(TranslationEngine.SYSTEM)
+                }
+            }
+    }
+
     private lateinit var settingsViewModel: SettingsViewModel
+    private lateinit var translationEngineSpinner: Spinner
+    private lateinit var translationEngineHint: TextView
+    private lateinit var translationEngineAdapter: ArrayAdapter<String>
     private var updating = false
     private val languageTags = listOf<String?>(null, "ko", "en")
     private var currentSettings: SettingsState? = null
     private var pendingLanguageRecreate = false
+    private var translationAvailability: TranslationEngineAvailability? = null
+    private var translationSpinnerEngines: List<TranslationEngine?> = emptyList()
+    private var resolvingTranslationAvailability = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -152,6 +179,37 @@ class AdvancedSettingsActivity : BaseActivity() {
             settingsViewModel.updateAutoPipEnabled(isChecked)
         }
 
+        translationEngineSpinner = findViewById(R.id.advancedTranslationEngineSpinner)
+        translationEngineHint = findViewById(R.id.advancedTranslationEngineHint)
+        translationEngineAdapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            mutableListOf("")
+        ).also { adapter ->
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        translationEngineSpinner.adapter = translationEngineAdapter
+        translationEngineSpinner.isEnabled = false
+        translationEngineSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                if (updating) {
+                    return
+                }
+                val selectedEngine = translationSpinnerEngines.getOrNull(position) ?: return
+                if (currentSettings?.translationEngine == selectedEngine) {
+                    return
+                }
+                settingsViewModel.updateTranslationEngine(selectedEngine)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
         val inquiryRow = findViewById<View>(R.id.advancedInquiryRow)
         val inquiryTitle = inquiryRow.findViewById<TextView>(R.id.settingsRowTitle)
         inquiryTitle.text = getString(R.string.advanced_settings_inquiry)
@@ -219,7 +277,11 @@ class AdvancedSettingsActivity : BaseActivity() {
                     checkBox.isChecked = shouldChecked
                 }
             }
+            val forcedEngine = renderTranslationEngineSection(settings)
             updating = false
+            if (forcedEngine != null && settings.translationEngine != forcedEngine) {
+                settingsViewModel.updateTranslationEngine(forcedEngine)
+            }
         }
 
         val topBar = findViewById<View>(R.id.commonTopBar)
@@ -233,6 +295,154 @@ class AdvancedSettingsActivity : BaseActivity() {
                 view.paddingBottom
             )
             insets
+        }
+        resolveTranslationEngineAvailability()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resolveTranslationEngineAvailability()
+    }
+
+    private fun resolveTranslationEngineAvailability() {
+        if (resolvingTranslationAvailability) {
+            return
+        }
+        resolvingTranslationAvailability = true
+        Thread {
+            val availability = TranslationEngineAvailability(
+                mlKitSupported = isMlKitTranslationSupported(),
+                systemSupported = isSystemTranslationSupported()
+            )
+            if (isFinishing || isDestroyed) {
+                resolvingTranslationAvailability = false
+                return@Thread
+            }
+            runOnUiThread {
+                resolvingTranslationAvailability = false
+                translationAvailability = availability
+                val settings = currentSettings ?: return@runOnUiThread
+                updating = true
+                val forcedEngine = renderTranslationEngineSection(settings)
+                updating = false
+                if (forcedEngine != null && settings.translationEngine != forcedEngine) {
+                    settingsViewModel.updateTranslationEngine(forcedEngine)
+                }
+            }
+        }.start()
+    }
+
+    private fun isMlKitTranslationSupported(): Boolean {
+        return runCatching {
+            Class.forName("com.google.mlkit.nl.translate.Translation")
+        }.isSuccess
+    }
+
+    private fun isSystemTranslationSupported(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return false
+        }
+        return isSystemTranslationSupportedApi31()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun isSystemTranslationSupportedApi31(): Boolean {
+        val manager = getSystemService(TranslationManager::class.java) ?: return false
+        return runCatching {
+            val capabilities = manager.getOnDeviceTranslationCapabilities(
+                TranslationSpec.DATA_FORMAT_TEXT,
+                TranslationSpec.DATA_FORMAT_TEXT
+            )
+            capabilities.isNotEmpty()
+        }.getOrDefault(false)
+    }
+
+    private fun renderTranslationEngineSection(settings: SettingsState): TranslationEngine? {
+        val availability = translationAvailability
+        if (availability == null) {
+            bindTranslationSpinner(
+                engines = listOf(null),
+                labels = listOf(""),
+                selection = 0,
+                enabled = false
+            )
+            translationEngineHint.visibility = View.GONE
+            return null
+        }
+        val availableEngines = availability.availableEngines
+        return when {
+            availableEngines.size >= 2 -> {
+                val selectedEngine = if (availableEngines.contains(settings.translationEngine)) {
+                    settings.translationEngine
+                } else {
+                    availableEngines.first()
+                }
+                val labels = availableEngines.map { translationEngineLabel(it) }
+                val selectedIndex = availableEngines.indexOf(selectedEngine).coerceAtLeast(0)
+                bindTranslationSpinner(
+                    engines = availableEngines,
+                    labels = labels,
+                    selection = selectedIndex,
+                    enabled = true
+                )
+                translationEngineHint.visibility = View.GONE
+                if (selectedEngine != settings.translationEngine) {
+                    selectedEngine
+                } else {
+                    null
+                }
+            }
+            availableEngines.size == 1 -> {
+                val fixedEngine = availableEngines.first()
+                bindTranslationSpinner(
+                    engines = listOf(fixedEngine),
+                    labels = listOf(translationEngineLabel(fixedEngine)),
+                    selection = 0,
+                    enabled = false
+                )
+                translationEngineHint.text = getString(R.string.translation_engine_locked_message)
+                translationEngineHint.visibility = View.VISIBLE
+                if (settings.translationEngine != fixedEngine) {
+                    fixedEngine
+                } else {
+                    null
+                }
+            }
+            else -> {
+                bindTranslationSpinner(
+                    engines = listOf(null),
+                    labels = listOf(""),
+                    selection = 0,
+                    enabled = false
+                )
+                translationEngineHint.text = getString(R.string.translation_engine_unsupported_message)
+                translationEngineHint.visibility = View.VISIBLE
+                null
+            }
+        }
+    }
+
+    private fun bindTranslationSpinner(
+        engines: List<TranslationEngine?>,
+        labels: List<String>,
+        selection: Int,
+        enabled: Boolean
+    ) {
+        translationSpinnerEngines = engines
+        translationEngineAdapter.clear()
+        translationEngineAdapter.addAll(labels)
+        translationEngineAdapter.notifyDataSetChanged()
+        if (translationEngineSpinner.selectedItemPosition != selection) {
+            translationEngineSpinner.setSelection(selection, false)
+        }
+        translationEngineSpinner.isEnabled = enabled
+        translationEngineSpinner.alpha = if (enabled) 1f else 0.7f
+    }
+
+    private fun translationEngineLabel(engine: TranslationEngine): String {
+        return when (engine) {
+            TranslationEngine.ML_KIT -> getString(R.string.translation_engine_ml_kit)
+            TranslationEngine.SYSTEM -> getString(R.string.translation_engine_system)
         }
     }
 

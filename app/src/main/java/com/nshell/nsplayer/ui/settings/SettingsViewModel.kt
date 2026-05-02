@@ -7,6 +7,7 @@ import androidx.lifecycle.MutableLiveData
 import com.nshell.nsplayer.data.settings.SettingsRepository
 import com.nshell.nsplayer.data.settings.SettingsState
 import com.nshell.nsplayer.data.settings.ThemeMode
+import com.nshell.nsplayer.data.settings.TranslationEngine
 import com.nshell.nsplayer.data.settings.VisibleItem
 import com.nshell.nsplayer.ui.main.VideoDisplayMode
 import com.nshell.nsplayer.ui.main.VideoMode
@@ -95,6 +96,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 return
             }
             settings.value = current.copy(autoPipEnabled = enabled)
+        } else {
+            refresh()
+        }
+    }
+
+    fun updateTranslationEngine(engine: TranslationEngine) {
+        repository.updateTranslationEngine(engine)
+        val current = settings.value
+        if (current != null) {
+            if (current.translationEngine == engine) {
+                return
+            }
+            settings.value = current.copy(translationEngine = engine)
         } else {
             refresh()
         }

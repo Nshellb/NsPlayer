@@ -89,6 +89,11 @@
     <string name="advanced_settings_visible_items">보여질 항목</string>
     <string name="advanced_settings_nomedia">.nomedia 인식</string>
     <string name="advanced_settings_auto_pip">자동 PiP 활성화</string>
+    <string name="advanced_settings_translation_engine">번역 엔진</string>
+    <string name="translation_engine_ml_kit">ML Kit</string>
+    <string name="translation_engine_system">시스템 번역</string>
+    <string name="translation_engine_locked_message">현재 시스템에서는 엔진 선택이 불가능합니다.</string>
+    <string name="translation_engine_unsupported_message">이 시스템에서는 번역 기능을 지원하지 않습니다.</string>
     <string name="advanced_settings_inquiry">문의 및 개선</string>
     <string name="advanced_settings_inquiry_title">문의 및 개선</string>
     <string name="inquiry_subject">문의 제목</string>

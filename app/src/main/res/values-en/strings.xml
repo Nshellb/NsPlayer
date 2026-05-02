@@ -89,6 +89,11 @@
     <string name="advanced_settings_visible_items">Visible items</string>
     <string name="advanced_settings_nomedia">.nomedia support</string>
     <string name="advanced_settings_auto_pip">Enable automatic PiP</string>
+    <string name="advanced_settings_translation_engine">Translation engine</string>
+    <string name="translation_engine_ml_kit">ML Kit</string>
+    <string name="translation_engine_system">System translation</string>
+    <string name="translation_engine_locked_message">Engine selection is not available on this system.</string>
+    <string name="translation_engine_unsupported_message">Translation is not supported on this system.</string>
     <string name="advanced_settings_inquiry">Feedback</string>
     <string name="advanced_settings_inquiry_title">Feedback</string>
     <string name="inquiry_subject">Subject</string>
