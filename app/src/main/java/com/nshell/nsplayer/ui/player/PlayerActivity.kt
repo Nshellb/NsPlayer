@@ -78,7 +78,7 @@ class PlayerActivity : BaseActivity() {
     private val uiHandler = Handler(Looper.getMainLooper())
     private val progressUpdater = object : Runnable {
         override fun run() {
-            if (player != null && !isScrubbing) {
+            if (player != null && !isScrubbing && swipeMode != SwipeMode.HORIZONTAL) {
                 updateProgress(player?.currentPosition ?: 0, player?.duration ?: C.TIME_UNSET)
             }
             uiHandler.postDelayed(this, UI_UPDATE_INTERVAL_MS)
@@ -96,11 +96,14 @@ class PlayerActivity : BaseActivity() {
     private lateinit var gestureDetector: GestureDetector
     private var swipeThresholdPx = 0f
     private var isAdjusting = false
+    private var swipeMode = SwipeMode.NONE
     private var startX = 0f
     private var startY = 0f
     private var adjustLeftSide = false
     private var startBrightness = -1f
     private var startVolume = 0
+    private var swipeSeekStartPositionMs = 0L
+    private var swipeSeekTargetPositionMs = 0L
     private var maxVolume = 0
     private var audioManager: AudioManager? = null
     private lateinit var videoUri: Uri
@@ -232,7 +235,7 @@ class PlayerActivity : BaseActivity() {
                 return@OnTouchListener false
             }
             val handled = gestureDetector.onTouchEvent(event)
-            handleVerticalSwipe(event, v.width, v.height)
+            handleSwipeAdjustments(event, v.width, v.height)
             handled || isAdjusting
         }
         root.setOnTouchListener(touchListener)
@@ -661,8 +664,8 @@ class PlayerActivity : BaseActivity() {
             y <= location[1] + view.height
     }
 
-    private fun handleVerticalSwipe(event: MotionEvent, width: Int, height: Int) {
-        if (height <= 0) {
+    private fun handleSwipeAdjustments(event: MotionEvent, width: Int, height: Int) {
+        if (width <= 0 || height <= 0) {
             return
         }
         when (event.actionMasked) {
@@ -671,38 +674,83 @@ class PlayerActivity : BaseActivity() {
                 startY = event.y
                 adjustLeftSide = startX < width / 2f
                 isAdjusting = false
+                swipeMode = SwipeMode.NONE
                 startBrightness = getCurrentBrightness()
                 startVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+                swipeSeekStartPositionMs = player?.currentPosition ?: 0L
+                swipeSeekTargetPositionMs = swipeSeekStartPositionMs
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = event.y - startY
                 val dx = event.x - startX
                 if (!isAdjusting) {
-                    if (kotlin.math.abs(dy) > swipeThresholdPx && kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
-                        isAdjusting = true
-                    } else {
+                    val absDx = kotlin.math.abs(dx)
+                    val absDy = kotlin.math.abs(dy)
+                    if (absDx <= swipeThresholdPx && absDy <= swipeThresholdPx) {
                         return
                     }
+                    isAdjusting = true
+                    swipeMode = if (absDx > absDy) {
+                        SwipeMode.HORIZONTAL
+                    } else {
+                        SwipeMode.VERTICAL
+                    }
                 }
-                val delta = -dy / height
-                if (adjustLeftSide) {
-                    val target = clamp(startBrightness + delta, 0.02f, 1f)
-                    setWindowBrightness(target)
-                    val percent = kotlin.math.round(target * 100f).toInt()
-                    showGestureText("Brightness $percent%")
+                if (swipeMode == SwipeMode.HORIZONTAL) {
+                    val activePlayer = player ?: return
+                    val duration = activePlayer.duration
+                    val seekRange = if (duration == C.TIME_UNSET || duration <= 0L) {
+                        SWIPE_SEEK_MAX_RANGE_MS
+                    } else {
+                        duration.coerceAtMost(SWIPE_SEEK_MAX_RANGE_MS)
+                    }
+                    val seekDelta = (dx / width.toFloat()) * seekRange.toFloat()
+                    val target = if (duration == C.TIME_UNSET || duration <= 0L) {
+                        (swipeSeekStartPositionMs + kotlin.math.round(seekDelta).toLong()).coerceAtLeast(0L)
+                    } else {
+                        (swipeSeekStartPositionMs + kotlin.math.round(seekDelta).toLong()).coerceIn(0L, duration)
+                    }
+                    swipeSeekTargetPositionMs = target
+                    updateProgress(target, duration)
+                    val deltaLabel = formatTime(kotlin.math.abs(target - swipeSeekStartPositionMs))
+                    val direction = if (target >= swipeSeekStartPositionMs) "+" else "-"
+                    val positionLabel = formatTime(target)
+                    val durationLabel = if (duration > 0 && duration != C.TIME_UNSET) {
+                        formatTime(duration)
+                    } else {
+                        "--:--"
+                    }
+                    showGestureText("$direction$deltaLabel ($positionLabel/$durationLabel)")
                 } else {
-                    val manager = audioManager
-                    if (manager != null && maxVolume > 0) {
-                        val target = clampVolume(startVolume + kotlin.math.round(delta * maxVolume).toInt())
-                        manager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
-                        val percent = kotlin.math.round(target / maxVolume.toFloat() * 100f).toInt()
-                        showGestureText("Volume $percent%")
+                    val delta = -dy / height
+                    if (adjustLeftSide) {
+                        val target = clamp(startBrightness + delta, 0.02f, 1f)
+                        setWindowBrightness(target)
+                        val percent = kotlin.math.round(target * 100f).toInt()
+                        showGestureText("Brightness $percent%")
+                    } else {
+                        val manager = audioManager
+                        if (manager != null && maxVolume > 0) {
+                            val target = clampVolume(startVolume + kotlin.math.round(delta * maxVolume).toInt())
+                            manager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                            val percent = kotlin.math.round(target / maxVolume.toFloat() * 100f).toInt()
+                            showGestureText("Volume $percent%")
+                        }
                     }
                 }
             }
             MotionEvent.ACTION_UP,
             MotionEvent.ACTION_CANCEL -> {
+                if (swipeMode == SwipeMode.HORIZONTAL) {
+                    val activePlayer = player
+                    if (event.actionMasked == MotionEvent.ACTION_UP && activePlayer != null) {
+                        activePlayer.seekTo(swipeSeekTargetPositionMs)
+                    } else if (activePlayer != null) {
+                        updateProgress(activePlayer.currentPosition, activePlayer.duration)
+                    }
+                }
                 isAdjusting = false
+                swipeMode = SwipeMode.NONE
                 scheduleOverlayHide()
             }
         }
@@ -1574,6 +1622,12 @@ class PlayerActivity : BaseActivity() {
 
     private data class SubtitleEncoding(val code: String, val label: String)
 
+    private enum class SwipeMode {
+        NONE,
+        VERTICAL,
+        HORIZONTAL
+    }
+
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             showOverlay()
@@ -1621,6 +1675,7 @@ class PlayerActivity : BaseActivity() {
         private const val UI_UPDATE_INTERVAL_MS = 500L
         private const val OVERLAY_AUTO_HIDE_MS = 2500L
         private const val GESTURE_TEXT_HIDE_MS = 1000L
+        private const val SWIPE_SEEK_MAX_RANGE_MS = 10 * 60 * 1000L
         private const val LOADING_SPINNER_DELAY_MS = 250L
         private const val PREFS = "nsplayer_prefs"
         private const val KEY_SUBTITLE_ENABLED = "subtitle_enabled"
