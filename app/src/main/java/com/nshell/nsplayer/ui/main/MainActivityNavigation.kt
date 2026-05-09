@@ -52,6 +52,9 @@ internal fun MainActivity.setMode(mode: VideoMode) {
 }
 
 internal fun MainActivity.handleBackNavigation(): Boolean {
+    if (exitSearchMode()) {
+        return true
+    }
     if (selectionController.isSelectionMode()) {
         selectionController.clearSelection()
         return true

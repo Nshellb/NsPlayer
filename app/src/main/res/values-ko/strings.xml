@@ -12,6 +12,10 @@
     <string name="mode_tile">타일</string>
     <string name="back">뒤로</string>
     <string name="folder_videos_title">%1$s</string>
+    <string name="search_button">검색</string>
+    <string name="search_hint">파일 검색</string>
+    <string name="search_close">검색 닫기</string>
+    <string name="search_empty">검색 결과가 없습니다.</string>
     <string name="browse_mode_button">보기 모드 선택</string>
     <string name="settings_title">설정</string>
     <string name="settings_mode_title">보기 모드</string>

@@ -12,6 +12,10 @@
     <string name="mode_tile">Tile</string>
     <string name="back">Back</string>
     <string name="folder_videos_title">%1$s</string>
+    <string name="search_button">Search</string>
+    <string name="search_hint">Search files</string>
+    <string name="search_close">Close search</string>
+    <string name="search_empty">No search results found.</string>
     <string name="browse_mode_button">Select view mode</string>
     <string name="settings_title">Settings</string>
     <string name="settings_mode_title">View mode</string>

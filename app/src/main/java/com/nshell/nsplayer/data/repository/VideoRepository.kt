@@ -36,4 +36,15 @@ interface VideoRepository {
         searchFoldersUseAll: Boolean,
         searchFolders: Set<String>
     ): List<DisplayItem>
+
+    fun searchVideos(
+        query: String,
+        sortMode: VideoSortMode,
+        sortOrder: VideoSortOrder,
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>,
+        limit: Int? = null
+    ): List<DisplayItem>
 }

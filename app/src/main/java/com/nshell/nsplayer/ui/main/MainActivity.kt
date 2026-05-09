@@ -3,9 +3,12 @@ package com.nshell.nsplayer.ui.main
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Parcelable
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
@@ -20,9 +23,11 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
+import com.nshell.nsplayer.data.repository.VideoRepository
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 class MainActivity : BaseActivity() {
     internal lateinit var statusText: TextView
@@ -37,6 +42,13 @@ class MainActivity : BaseActivity() {
     internal lateinit var selectionMoveButton: Button
     internal lateinit var selectionCopyButton: Button
     internal lateinit var selectionDeleteButton: Button
+    internal lateinit var searchFieldContainer: View
+    internal lateinit var searchInput: EditText
+    internal lateinit var searchExitButton: View
+    internal lateinit var searchButton: View
+    internal lateinit var settingsButton: View
+    internal lateinit var searchPreviewList: RecyclerView
+    internal lateinit var searchPreviewAdapter: SearchPreviewAdapter
     internal lateinit var adapter: VideoListAdapter
     internal lateinit var viewModel: VideoBrowserViewModel
     internal lateinit var settingsViewModel: SettingsViewModel
@@ -51,8 +63,18 @@ class MainActivity : BaseActivity() {
     internal var pendingListLayoutState: Parcelable? = null
     internal var pendingRename: RenameRequest? = null
     internal var pendingFolderRename: FolderRenameRequest? = null
+    internal var isSearchMode = false
+    internal var isShowingSearchResults = false
+    internal var committedSearchQuery = ""
+    internal var latestBrowseItems: List<DisplayItem>? = null
+    internal var previewDebounceRunnable: Runnable? = null
+    internal var suppressSearchTextChange = false
+    internal val searchUiHandler = Handler(Looper.getMainLooper())
     internal val preferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
     private val playlistExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    internal val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    internal val searchRepository: VideoRepository = MediaStoreVideoRepository()
+    internal val searchRequestCounter = AtomicLong(0L)
 
     private val copyDestinationLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -122,6 +144,12 @@ class MainActivity : BaseActivity() {
         selectionMoveButton = findViewById(R.id.selectionMoveButton)
         selectionCopyButton = findViewById(R.id.selectionCopyButton)
         selectionDeleteButton = findViewById(R.id.selectionDeleteButton)
+        searchFieldContainer = findViewById(R.id.searchFieldContainer)
+        searchInput = findViewById(R.id.searchInput)
+        searchExitButton = findViewById(R.id.searchExitButton)
+        searchButton = findViewById(R.id.searchButton)
+        settingsButton = findViewById(R.id.settingsButton)
+        searchPreviewList = findViewById(R.id.searchPreviewList)
 
         list = findViewById(R.id.list)
         refreshLayout = findViewById(R.id.refreshLayout)
@@ -188,8 +216,7 @@ class MainActivity : BaseActivity() {
         selectionCopyButton.setOnClickListener { transferController.startCopySelected() }
         selectionDeleteButton.setOnClickListener { transferController.startDeleteSelected() }
         selectionPlayButton.setOnClickListener { playSelectedItems() }
-
-        val settingsButton = findViewById<View>(R.id.settingsButton)
+        setupSearchUi()
         settingsButton.setOnClickListener { showSettingsDialog(it) }
 
         val backButton = findViewById<Button>(R.id.backButton)
@@ -241,7 +268,9 @@ class MainActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        searchUiHandler.removeCallbacksAndMessages(null)
         playlistExecutor.shutdown()
+        searchExecutor.shutdown()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

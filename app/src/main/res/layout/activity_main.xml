@@ -34,6 +34,55 @@
             android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
             android:textColor="@color/white" />
 
+        <LinearLayout
+            android:id="@+id/searchFieldContainer"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_search_field"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/searchInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/transparent"
+                android:hint="@string/search_hint"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:maxLines="1"
+                android:textColor="@color/white"
+                android:textColorHint="#B3FFFFFF"
+                android:textCursorDrawable="@drawable/cursor_black"
+                android:textSelectHandle="@drawable/text_select_handle_middle_black"
+                android:textSelectHandleLeft="@drawable/text_select_handle_left_black"
+                android:textSelectHandleRight="@drawable/text_select_handle_right_black" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/searchExitButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/search_close"
+            android:src="@drawable/ic_close"
+            android:tint="@color/white"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/searchButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/search_button"
+            android:src="@drawable/ic_search"
+            android:tint="@color/white" />
+
         <ImageButton
             android:id="@+id/settingsButton"
             android:layout_width="40dp"
@@ -43,6 +92,15 @@
             android:src="@drawable/ic_settings"
             android:tint="@color/white" />
     </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/searchPreviewList"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/white"
+        android:clipToPadding="false"
+        android:scrollbars="vertical"
+        android:visibility="gone" />
 
 
     <LinearLayout

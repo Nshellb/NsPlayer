@@ -8,6 +8,25 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.nshell.nsplayer.R
 
 internal fun MainActivity.updateHeaderState() {
+    if (isSearchMode) {
+        folderHeader.visibility = View.GONE
+        headerBackButton.visibility = View.GONE
+        titleText.visibility = View.GONE
+        searchButton.visibility = View.GONE
+        settingsButton.visibility = View.GONE
+        searchFieldContainer.visibility = View.VISIBLE
+        searchExitButton.visibility = View.VISIBLE
+        refreshLayout.isEnabled = false
+        return
+    }
+
+    searchFieldContainer.visibility = View.GONE
+    searchExitButton.visibility = View.GONE
+    titleText.visibility = View.VISIBLE
+    searchButton.visibility = View.VISIBLE
+    settingsButton.visibility = View.VISIBLE
+    refreshLayout.isEnabled = true
+
     if (browserState.inFolderVideos) {
         folderHeader.visibility = View.GONE
         headerBackButton.visibility = View.VISIBLE
@@ -37,6 +56,11 @@ internal fun MainActivity.updateHeaderState() {
 }
 
 internal fun MainActivity.applyVideoDisplayMode() {
+    if (isSearchMode && isShowingSearchResults) {
+        adapter.setVideoDisplayMode(VideoDisplayMode.LIST)
+        list.layoutManager = LinearLayoutManager(this)
+        return
+    }
     adapter.setVideoDisplayMode(browserState.videoDisplayMode)
     adapter.setTileSpanCount(browserState.tileSpanCount)
     list.layoutManager = if (browserState.videoDisplayMode == VideoDisplayMode.TILE) {

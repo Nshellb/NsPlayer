@@ -98,12 +98,19 @@ internal fun MainActivity.requestMediaPermissions() {
 
 internal fun MainActivity.renderItems(items: List<DisplayItem>?) {
     if (items == null) {
-        emptyText.visibility = View.GONE
+        if (!isSearchMode || !isShowingSearchResults) {
+            emptyText.visibility = View.GONE
+        }
+        return
+    }
+    latestBrowseItems = items
+    if (isSearchMode && isShowingSearchResults) {
         return
     }
     adapter.submit(items) {
         restoreTransientUiStateIfNeeded()
     }
+    emptyText.text = getString(R.string.empty_state)
     val isEmpty = items.isEmpty()
     emptyText.visibility = if (isEmpty) View.VISIBLE else View.GONE
 }

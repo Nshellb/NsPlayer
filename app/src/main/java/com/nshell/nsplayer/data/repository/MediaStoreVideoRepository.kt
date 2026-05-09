@@ -77,6 +77,40 @@ class MediaStoreVideoRepository : VideoRepository {
         return buildHierarchyLevelItems(enriched, path, sortMode, sortOrder, noMediaIndex)
     }
 
+    override fun searchVideos(
+        query: String,
+        sortMode: VideoSortMode,
+        sortOrder: VideoSortOrder,
+        resolver: ContentResolver,
+        nomediaEnabled: Boolean,
+        searchFoldersUseAll: Boolean,
+        searchFolders: Set<String>,
+        limit: Int?
+    ): List<DisplayItem> {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            return emptyList()
+        }
+        val pattern = buildLikePattern(trimmed)
+        val entries = queryVideosInternal(
+            bucketId = null,
+            resolver = resolver,
+            selectionOverride = "${MediaStore.Video.Media.DISPLAY_NAME} LIKE ? ESCAPE '\\'",
+            selectionArgsOverride = arrayOf(pattern)
+        )
+        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
+        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
+        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
+        sortEntries(filtered, sortMode, sortOrder)
+        val enriched = attachSubtitleInfo(filtered, resolver)
+        val videoItems = buildVideoItems(enriched)
+        return if (limit != null && limit > 0) {
+            videoItems.take(limit)
+        } else {
+            videoItems
+        }
+    }
+
     fun loadVideosUnderHierarchy(
         path: String,
         sortMode: VideoSortMode,
@@ -571,6 +605,14 @@ class MediaStoreVideoRepository : VideoRepository {
             normalized += "/"
         }
         return normalized
+    }
+
+    private fun buildLikePattern(query: String): String {
+        val escaped = query
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        return "%$escaped%"
     }
 
     private fun entryPath(entry: VideoEntry): String {
