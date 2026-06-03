@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -78,8 +79,10 @@ class PlayerActivity : BaseActivity() {
     private val uiHandler = Handler(Looper.getMainLooper())
     private val progressUpdater = object : Runnable {
         override fun run() {
-            if (player != null && !isScrubbing && swipeMode != SwipeMode.HORIZONTAL) {
-                updateProgress(player?.currentPosition ?: 0, player?.duration ?: C.TIME_UNSET)
+            val activePlayer = player
+            if (activePlayer != null && !isScrubbing && swipeMode != SwipeMode.HORIZONTAL) {
+                maybeCompletePendingSeek(activePlayer)
+                updateProgress(resolveDisplayedPosition(activePlayer), activePlayer.duration)
             }
             uiHandler.postDelayed(this, UI_UPDATE_INTERVAL_MS)
         }
@@ -129,6 +132,12 @@ class PlayerActivity : BaseActivity() {
     private var shuffleEnabled = false
     private var pendingResumePrompt = false
     private var pendingLoadingSpinner = false
+    // Keep the seek UI aligned with the user's requested position until playback catches up.
+    private var pendingSeekTargetMs = C.TIME_UNSET
+    private var pendingSeekDisplayPositionMs = C.TIME_UNSET
+    private var pendingSeekRequestedAtMs = 0L
+    private var pendingSeekApplied = false
+    private var pendingSeekSource = SeekSource.SEEK_BAR
 
     private val subtitlePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -220,7 +229,7 @@ class PlayerActivity : BaseActivity() {
 
             override fun onStopTrackingTouch(bar: SeekBar) {
                 isScrubbing = false
-                player?.seekTo(bar.progress.toLong())
+                requestSeek(bar.progress.toLong(), SeekSource.SEEK_BAR)
                 uiHandler.post(progressUpdater)
                 scheduleOverlayHide()
             }
@@ -352,28 +361,54 @@ class PlayerActivity : BaseActivity() {
             .build()
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
-            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            .setSeekParameters(DEFAULT_SEEK_PARAMETERS)
             .build()
         playerView.player = player
         player?.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                player?.let(::maybeCompletePendingSeek)
                 updatePlaybackUi()
             }
 
             override fun onIsLoadingChanged(isLoading: Boolean) {
+                player?.let(::maybeCompletePendingSeek)
                 updatePlaybackUi()
             }
 
             override fun onPlaybackStateChanged(state: Int) {
+                val activePlayer = player ?: return
+                maybeCompletePendingSeek(activePlayer)
                 updatePlaybackUi()
                 if (state == Player.STATE_READY) {
-                    updateProgress(player?.currentPosition ?: 0, player?.duration ?: C.TIME_UNSET)
+                    updateProgress(resolveDisplayedPosition(activePlayer), activePlayer.duration)
                     maybeShowResumePrompt()
                 }
             }
 
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                val activePlayer = player ?: return
+                if (reason != Player.DISCONTINUITY_REASON_SEEK || !hasPendingSeek()) {
+                    return
+                }
+                pendingSeekApplied = true
+                pendingSeekDisplayPositionMs = newPosition.positionMs.coerceAtLeast(0L)
+                maybeCompletePendingSeek(activePlayer)
+                updatePlaybackUi()
+            }
+
+            override fun onRenderedFirstFrame() {
+                val activePlayer = player ?: return
+                completePendingSeek(activePlayer)
+                updatePlaybackUi()
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val activePlayer = player ?: return
+                clearPendingSeekState()
                 val index = activePlayer.currentMediaItemIndex
                 if (index < 0 || index >= playlistEntries.size) {
                     return
@@ -393,6 +428,9 @@ class PlayerActivity : BaseActivity() {
             }
 
             override fun onPlayerErrorChanged(error: PlaybackException?) {
+                if (error != null) {
+                    clearPendingSeekState()
+                }
                 updatePlaybackUi(error)
             }
         })
@@ -448,6 +486,7 @@ class PlayerActivity : BaseActivity() {
         }
 
         val activePlayer = player ?: return
+        clearPendingSeekState()
         val resumePosition = resolveResumePosition()
         val items = buildMediaItems()
         val startIndex = playlistIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
@@ -511,6 +550,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun releasePlayer() {
+        clearPendingSeekState()
         player?.release()
         player = null
     }
@@ -589,16 +629,116 @@ class PlayerActivity : BaseActivity() {
         durationText.text = formatTime(durationMs)
     }
 
+    private fun requestSeek(targetMs: Long, source: SeekSource) {
+        val activePlayer = player ?: return
+        val clampedTarget = clampSeekPosition(targetMs, activePlayer.duration)
+        pendingSeekTargetMs = clampedTarget
+        pendingSeekDisplayPositionMs = clampedTarget
+        pendingSeekRequestedAtMs = SystemClock.elapsedRealtime()
+        pendingSeekApplied = false
+        pendingSeekSource = source
+        activePlayer.setSeekParameters(seekParametersFor(source))
+        updateProgress(clampedTarget, activePlayer.duration)
+        updatePlaybackUi()
+        activePlayer.seekTo(clampedTarget)
+    }
+
+    private fun maybeCompletePendingSeek(activePlayer: Player) {
+        if (!hasPendingSeek()) {
+            return
+        }
+        if (!pendingSeekApplied) {
+            val elapsedMs = SystemClock.elapsedRealtime() - pendingSeekRequestedAtMs
+            if (elapsedMs < SEEK_APPLY_FALLBACK_MS ||
+                !isSeekPositionSettled(activePlayer.currentPosition, pendingSeekTargetMs, pendingSeekSource)
+            ) {
+                return
+            }
+            pendingSeekApplied = true
+            pendingSeekDisplayPositionMs = activePlayer.currentPosition.coerceAtLeast(0L)
+        }
+        val ready = activePlayer.playbackState == Player.STATE_READY
+        if (ready && !activePlayer.isLoading) {
+            completePendingSeek(activePlayer)
+        }
+    }
+
+    private fun completePendingSeek(activePlayer: Player) {
+        if (!hasPendingSeek()) {
+            return
+        }
+        clearPendingSeekState()
+        updateProgress(activePlayer.currentPosition.coerceAtLeast(0L), activePlayer.duration)
+    }
+
+    private fun hasPendingSeek(): Boolean = pendingSeekTargetMs != C.TIME_UNSET
+
+    private fun clearPendingSeekState() {
+        pendingSeekTargetMs = C.TIME_UNSET
+        pendingSeekDisplayPositionMs = C.TIME_UNSET
+        pendingSeekRequestedAtMs = 0L
+        pendingSeekApplied = false
+    }
+
+    private fun resolveDisplayedPosition(activePlayer: Player): Long {
+        return if (hasPendingSeek() && pendingSeekDisplayPositionMs != C.TIME_UNSET) {
+            pendingSeekDisplayPositionMs
+        } else {
+            activePlayer.currentPosition.coerceAtLeast(0L)
+        }
+    }
+
+    private fun currentInteractivePosition(activePlayer: Player): Long {
+        return if (hasPendingSeek()) {
+            resolveDisplayedPosition(activePlayer)
+        } else {
+            activePlayer.currentPosition.coerceAtLeast(0L)
+        }
+    }
+
+    private fun clampSeekPosition(targetMs: Long, durationMs: Long): Long {
+        return if (durationMs == C.TIME_UNSET || durationMs <= 0L) {
+            targetMs.coerceAtLeast(0L)
+        } else {
+            targetMs.coerceIn(0L, durationMs)
+        }
+    }
+
+    private fun seekParametersFor(source: SeekSource): SeekParameters {
+        return when (source) {
+            SeekSource.SEEK_BAR,
+            SeekSource.SWIPE,
+            SeekSource.RESTART -> SeekParameters.EXACT
+
+            SeekSource.DOUBLE_TAP -> DEFAULT_SEEK_PARAMETERS
+        }
+    }
+
+    private fun isSeekPositionSettled(
+        actualPositionMs: Long,
+        expectedPositionMs: Long,
+        source: SeekSource
+    ): Boolean {
+        val toleranceMs = when (source) {
+            SeekSource.SEEK_BAR,
+            SeekSource.SWIPE,
+            SeekSource.RESTART -> EXACT_SEEK_SETTLE_TOLERANCE_MS
+
+            SeekSource.DOUBLE_TAP -> SYNC_SEEK_SETTLE_TOLERANCE_MS
+        }
+        return kotlin.math.abs(actualPositionMs - expectedPositionMs) <= toleranceMs
+    }
+
     private fun seekBy(deltaMs: Long) {
         val activePlayer = player ?: return
         val duration = activePlayer.duration
-        var target = activePlayer.currentPosition + deltaMs
-        target = if (duration != C.TIME_UNSET && duration > 0) {
-            target.coerceIn(0, duration)
+        val basePosition = currentInteractivePosition(activePlayer)
+        val target = if (duration != C.TIME_UNSET && duration > 0) {
+            (basePosition + deltaMs).coerceIn(0, duration)
         } else {
-            target.coerceAtLeast(0)
+            (basePosition + deltaMs).coerceAtLeast(0)
         }
-        activePlayer.seekTo(target)
+        requestSeek(target, SeekSource.DOUBLE_TAP)
         showGestureText(if (deltaMs > 0) "+10s" else "-10s")
         scheduleOverlayHide()
     }
@@ -677,7 +817,7 @@ class PlayerActivity : BaseActivity() {
                 swipeMode = SwipeMode.NONE
                 startBrightness = getCurrentBrightness()
                 startVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
-                swipeSeekStartPositionMs = player?.currentPosition ?: 0L
+                swipeSeekStartPositionMs = player?.let(::currentInteractivePosition) ?: 0L
                 swipeSeekTargetPositionMs = swipeSeekStartPositionMs
             }
             MotionEvent.ACTION_MOVE -> {
@@ -744,7 +884,7 @@ class PlayerActivity : BaseActivity() {
                 if (swipeMode == SwipeMode.HORIZONTAL) {
                     val activePlayer = player
                     if (event.actionMasked == MotionEvent.ACTION_UP && activePlayer != null) {
-                        activePlayer.seekTo(swipeSeekTargetPositionMs)
+                        requestSeek(swipeSeekTargetPositionMs, SeekSource.SWIPE)
                     } else if (activePlayer != null) {
                         updateProgress(activePlayer.currentPosition, activePlayer.duration)
                     }
@@ -1164,7 +1304,7 @@ class PlayerActivity : BaseActivity() {
         uiHandler.removeCallbacks(hideResumeButtonRunnable)
         resumeButton.visibility = View.GONE
         clearResumePosition()
-        player?.seekTo(0L)
+        requestSeek(0L, SeekSource.RESTART)
         showOverlay()
     }
 
@@ -1208,7 +1348,8 @@ class PlayerActivity : BaseActivity() {
             clearPlaybackError()
         }
         val buffering = activePlayer.playbackState == Player.STATE_BUFFERING || activePlayer.isLoading
-        updateLoadingSpinner(buffering && error == null)
+        val seeking = hasPendingSeek()
+        updateLoadingSpinner((buffering || seeking) && error == null)
         updatePlayPauseIcon(activePlayer.isPlaying)
     }
 
@@ -1628,6 +1769,13 @@ class PlayerActivity : BaseActivity() {
         HORIZONTAL
     }
 
+    private enum class SeekSource {
+        SEEK_BAR,
+        SWIPE,
+        DOUBLE_TAP,
+        RESTART
+    }
+
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             showOverlay()
@@ -1671,12 +1819,16 @@ class PlayerActivity : BaseActivity() {
         private const val STATE_USER_ORIENTATION = "state_user_orientation"
         private const val SEEK_JUMP_MS = 10_000L
         private const val SEEK_BACK_BUFFER_MS = 15_000
-        private const val BUFFER_FOR_PLAYBACK_AFTER_SEEK_MS = 1_000
-        private const val UI_UPDATE_INTERVAL_MS = 500L
+        private const val BUFFER_FOR_PLAYBACK_AFTER_SEEK_MS = 350
+        private const val UI_UPDATE_INTERVAL_MS = 250L
         private const val OVERLAY_AUTO_HIDE_MS = 2500L
         private const val GESTURE_TEXT_HIDE_MS = 1000L
         private const val SWIPE_SEEK_MAX_RANGE_MS = 10 * 60 * 1000L
-        private const val LOADING_SPINNER_DELAY_MS = 250L
+        private const val LOADING_SPINNER_DELAY_MS = 150L
+        private val DEFAULT_SEEK_PARAMETERS = SeekParameters.CLOSEST_SYNC
+        private const val SEEK_APPLY_FALLBACK_MS = 750L
+        private const val EXACT_SEEK_SETTLE_TOLERANCE_MS = 350L
+        private const val SYNC_SEEK_SETTLE_TOLERANCE_MS = 1_500L
         private const val PREFS = "nsplayer_prefs"
         private const val KEY_SUBTITLE_ENABLED = "subtitle_enabled"
         private const val KEY_SUBTITLE_LANGUAGE = "subtitle_language"
