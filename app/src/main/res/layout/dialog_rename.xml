@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="4dp">
+
+    <EditText
+        android:id="@+id/renameInput"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:background="@drawable/bg_rename_input"
+        android:gravity="center_vertical"
+        android:hint="@string/rename_hint"
+        android:imeOptions="actionDone"
+        android:includeFontPadding="false"
+        android:inputType="text"
+        android:maxLines="1"
+        android:minHeight="0dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:textCursorDrawable="@drawable/cursor_black"
+        android:textSelectHandle="@drawable/text_select_handle_middle_black"
+        android:textSelectHandleLeft="@drawable/text_select_handle_left_black"
+        android:textSelectHandleRight="@drawable/text_select_handle_right_black" />
+
+</FrameLayout>

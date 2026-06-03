@@ -89,9 +89,9 @@ internal fun MainActivity.showRenameDialog(item: DisplayItem) {
     } else {
         item.title
     }
-    val input = EditText(this)
+    val content = layoutInflater.inflate(R.layout.dialog_rename, null)
+    val input = content.findViewById<EditText>(R.id.renameInput)
     input.setSingleLine(true)
-    input.hint = getString(R.string.rename_hint)
     input.setText(currentName)
     if (isVideo) {
         val dot = currentName.lastIndexOf('.')
@@ -105,7 +105,7 @@ internal fun MainActivity.showRenameDialog(item: DisplayItem) {
     }
     AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
         .setTitle(R.string.rename_title)
-        .setView(input)
+        .setView(content)
         .setPositiveButton(R.string.confirm) { _, _ ->
             val rawName = input.text?.toString()?.trim() ?: ""
             val resolved = if (isVideo) {
