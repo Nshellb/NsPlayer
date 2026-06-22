@@ -267,6 +267,7 @@ class PlayerActivity : BaseActivity() {
         loadPlaybackOptions()
         loadPlaybackSpeed()
         subtitleCandidates = loadSubtitleCandidates(videoUri)
+        autoSelectSubtitleIfAvailable()
         updateSubtitleButtonState()
         updateRepeatButton()
         updateShuffleButton()
@@ -421,7 +422,12 @@ class PlayerActivity : BaseActivity() {
                     selectedSubtitle = null
                     subtitleCandidates = loadSubtitleCandidates(videoUri)
                     loadSubtitlePreferences()
-                    updateSubtitleButtonState()
+                    autoSelectSubtitleIfAvailable()
+                    if (selectedSubtitle != null) {
+                        applySubtitleSelection(selectedSubtitle)
+                    } else {
+                        applySubtitleEnabled(subtitleEnabled)
+                    }
                 }
                 recordRecentPlayback(entry.uri, entry.title, 0L, 0L)
                 updateNavigationButtons()
@@ -476,6 +482,7 @@ class PlayerActivity : BaseActivity() {
         loadPlaybackOptions()
         loadPlaybackSpeed()
         subtitleCandidates = loadSubtitleCandidates(videoUri)
+        autoSelectSubtitleIfAvailable()
         updateSubtitleButtonState()
         updateRepeatButton()
         updateShuffleButton()
@@ -1556,6 +1563,16 @@ class PlayerActivity : BaseActivity() {
         } else {
             selectedSubtitle = null
         }
+    }
+
+    private fun autoSelectSubtitleIfAvailable() {
+        if (selectedSubtitle != null || subtitleCandidates.isEmpty()) {
+            return
+        }
+        selectedSubtitle = subtitleCandidates.first()
+        subtitleEnabled = true
+        persistSubtitleSelection(selectedSubtitle)
+        persistSubtitleEnabled()
     }
 
     private fun persistSubtitleEnabled() {
