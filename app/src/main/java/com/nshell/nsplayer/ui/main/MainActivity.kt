@@ -14,17 +14,19 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import com.nshell.nsplayer.ui.base.BaseActivity
-import com.nshell.nsplayer.ui.base.themeColor
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdView
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
 import com.nshell.nsplayer.data.repository.VideoRepository
+import com.nshell.nsplayer.ui.base.BaseActivity
+import com.nshell.nsplayer.ui.base.themeColor
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -72,6 +74,7 @@ class MainActivity : BaseActivity() {
     internal var suppressSearchTextChange = false
     internal val searchUiHandler = Handler(Looper.getMainLooper())
     internal val preferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
+    private var bannerAdView: AdView? = null
     private val playlistExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     internal val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     internal val searchRepository: VideoRepository = MediaStoreVideoRepository()
@@ -151,6 +154,8 @@ class MainActivity : BaseActivity() {
         searchButton = findViewById(R.id.searchButton)
         settingsButton = findViewById(R.id.settingsButton)
         searchPreviewList = findViewById(R.id.searchPreviewList)
+        bannerAdView = findViewById(R.id.mainBannerAdView)
+        bannerAdView?.loadAd(AdRequest.Builder().build())
 
         list = findViewById(R.id.list)
         refreshLayout = findViewById(R.id.refreshLayout)
@@ -266,14 +271,22 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        bannerAdView?.resume()
         settingsViewModel.refresh()
     }
 
+    override fun onPause() {
+        bannerAdView?.pause()
+        super.onPause()
+    }
+
     override fun onDestroy() {
-        super.onDestroy()
         searchUiHandler.removeCallbacksAndMessages(null)
         playlistExecutor.shutdown()
         searchExecutor.shutdown()
+        bannerAdView?.destroy()
+        bannerAdView = null
+        super.onDestroy()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
