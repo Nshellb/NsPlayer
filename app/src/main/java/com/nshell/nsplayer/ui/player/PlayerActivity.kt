@@ -14,7 +14,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.provider.Settings
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -51,6 +50,7 @@ import java.io.IOException
 import java.io.File
 import java.nio.charset.Charset
 import java.util.Locale
+import java.util.concurrent.Executors
 
 class PlayerActivity : BaseActivity() {
     private lateinit var playerView: PlayerView
@@ -77,12 +77,16 @@ class PlayerActivity : BaseActivity() {
     private lateinit var errorText: TextView
 
     private val uiHandler = Handler(Looper.getMainLooper())
+    private val seekController = SeekController { android.os.SystemClock.elapsedRealtime() }
+    private val subtitleResolver = Executors.newSingleThreadExecutor()
+    private val subtitleCandidatesByUri = mutableMapOf<Uri, List<SubtitleSource>>()
+    private val pendingSubtitleRequests = mutableSetOf<Pair<Long, Uri>>()
     private val progressUpdater = object : Runnable {
         override fun run() {
             val activePlayer = player
-            if (activePlayer != null && !isScrubbing && swipeMode != SwipeMode.HORIZONTAL) {
-                maybeCompletePendingSeek(activePlayer)
-                updateProgress(resolveDisplayedPosition(activePlayer), activePlayer.duration)
+            if (activePlayer != null) {
+                val seekUi = seekController.onPlayerProgress(activePlayer.toPlaybackSnapshot())
+                updateProgress(seekUi.displayedPositionMs, activePlayer.duration)
             }
             uiHandler.postDelayed(this, UI_UPDATE_INTERVAL_MS)
         }
@@ -95,7 +99,6 @@ class PlayerActivity : BaseActivity() {
         loadingSpinner.visibility = View.VISIBLE
     }
 
-    private var isScrubbing = false
     private lateinit var gestureDetector: GestureDetector
     private var swipeThresholdPx = 0f
     private var isAdjusting = false
@@ -106,7 +109,6 @@ class PlayerActivity : BaseActivity() {
     private var startBrightness = -1f
     private var startVolume = 0
     private var swipeSeekStartPositionMs = 0L
-    private var swipeSeekTargetPositionMs = 0L
     private var maxVolume = 0
     private var audioManager: AudioManager? = null
     private lateinit var videoUri: Uri
@@ -132,12 +134,11 @@ class PlayerActivity : BaseActivity() {
     private var shuffleEnabled = false
     private var pendingResumePrompt = false
     private var pendingLoadingSpinner = false
-    // Keep the seek UI aligned with the user's requested position until playback catches up.
-    private var pendingSeekTargetMs = C.TIME_UNSET
-    private var pendingSeekDisplayPositionMs = C.TIME_UNSET
-    private var pendingSeekRequestedAtMs = 0L
-    private var pendingSeekApplied = false
-    private var pendingSeekSource = SeekSource.SEEK_BAR
+    private var playbackSessionId = 1L
+    private var subtitleResolveGeneration = 0L
+    private var renderedIsPlaying: Boolean? = null
+    private var renderedPositionSeconds = Long.MIN_VALUE
+    private var renderedDurationSeconds = Long.MIN_VALUE
 
     private val subtitlePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -218,19 +219,27 @@ class PlayerActivity : BaseActivity() {
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    positionText.text = formatTime(progress.toLong())
+                    player?.let { activePlayer ->
+                        val seekUi = seekController.updatePreview(
+                            progress.toLong(),
+                            activePlayer.toPlaybackSnapshot()
+                        )
+                        updateProgress(seekUi.displayedPositionMs, activePlayer.duration)
+                    }
                 }
             }
 
             override fun onStartTrackingTouch(bar: SeekBar) {
-                isScrubbing = true
-                uiHandler.removeCallbacks(progressUpdater)
+                player?.let { seekController.startPreview(it.toPlaybackSnapshot()) }
             }
 
             override fun onStopTrackingTouch(bar: SeekBar) {
-                isScrubbing = false
-                requestSeek(bar.progress.toLong(), SeekSource.SEEK_BAR)
-                uiHandler.post(progressUpdater)
+                val activePlayer = player
+                if (activePlayer != null) {
+                    seekController.updatePreview(bar.progress.toLong(), activePlayer.toPlaybackSnapshot())
+                    seekController.commitPreview(SeekSource.SEEK_BAR, activePlayer.toPlaybackSnapshot())
+                        ?.let(::dispatchSeek)
+                }
                 scheduleOverlayHide()
             }
         })
@@ -266,8 +275,7 @@ class PlayerActivity : BaseActivity() {
         loadSubtitlePreferences()
         loadPlaybackOptions()
         loadPlaybackSpeed()
-        subtitleCandidates = loadSubtitleCandidates(videoUri)
-        autoSelectSubtitleIfAvailable()
+        requestSubtitleCandidatesForPlaylist()
         updateSubtitleButtonState()
         updateRepeatButton()
         updateShuffleButton()
@@ -316,6 +324,12 @@ class PlayerActivity : BaseActivity() {
         clearSubtitleCache()
     }
 
+    override fun onDestroy() {
+        subtitleResolveGeneration++
+        subtitleResolver.shutdownNow()
+        super.onDestroy()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt(STATE_USER_ORIENTATION, userOrientation)
@@ -362,26 +376,26 @@ class PlayerActivity : BaseActivity() {
             .build()
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
-            .setSeekParameters(DEFAULT_SEEK_PARAMETERS)
+            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
         playerView.player = player
         player?.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                player?.let(::maybeCompletePendingSeek)
+                player?.let { seekController.onPlayerProgress(it.toPlaybackSnapshot()) }
                 updatePlaybackUi()
             }
 
             override fun onIsLoadingChanged(isLoading: Boolean) {
-                player?.let(::maybeCompletePendingSeek)
+                player?.let { seekController.onPlayerProgress(it.toPlaybackSnapshot()) }
                 updatePlaybackUi()
             }
 
             override fun onPlaybackStateChanged(state: Int) {
                 val activePlayer = player ?: return
-                maybeCompletePendingSeek(activePlayer)
+                val seekUi = seekController.onPlayerProgress(activePlayer.toPlaybackSnapshot())
                 updatePlaybackUi()
                 if (state == Player.STATE_READY) {
-                    updateProgress(resolveDisplayedPosition(activePlayer), activePlayer.duration)
+                    updateProgress(seekUi.displayedPositionMs, activePlayer.duration)
                     maybeShowResumePrompt()
                 }
             }
@@ -392,41 +406,39 @@ class PlayerActivity : BaseActivity() {
                 reason: Int
             ) {
                 val activePlayer = player ?: return
-                if (reason != Player.DISCONTINUITY_REASON_SEEK || !hasPendingSeek()) {
+                if (reason != Player.DISCONTINUITY_REASON_SEEK) {
                     return
                 }
-                pendingSeekApplied = true
-                pendingSeekDisplayPositionMs = newPosition.positionMs.coerceAtLeast(0L)
-                maybeCompletePendingSeek(activePlayer)
+                val seekUi = seekController.onPositionDiscontinuity(activePlayer.toPlaybackSnapshot())
+                updateProgress(seekUi.displayedPositionMs, activePlayer.duration)
                 updatePlaybackUi()
             }
 
             override fun onRenderedFirstFrame() {
                 val activePlayer = player ?: return
-                completePendingSeek(activePlayer)
+                seekController.onPlayerProgress(activePlayer.toPlaybackSnapshot())
                 updatePlaybackUi()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val activePlayer = player ?: return
-                clearPendingSeekState()
                 val index = activePlayer.currentMediaItemIndex
                 if (index < 0 || index >= playlistEntries.size) {
                     return
                 }
+                seekController.onPlayerProgress(activePlayer.toPlaybackSnapshot())
                 playlistIndex = index
                 val entry = playlistEntries[index]
                 if (entry.uri != videoUri) {
                     videoUri = entry.uri
                     titleText.text = entry.title
                     selectedSubtitle = null
-                    subtitleCandidates = loadSubtitleCandidates(videoUri)
+                    subtitleCandidates = subtitleCandidatesByUri[videoUri].orEmpty()
                     loadSubtitlePreferences()
                     autoSelectSubtitleIfAvailable()
-                    if (selectedSubtitle != null) {
-                        applySubtitleSelection(selectedSubtitle)
-                    } else {
-                        applySubtitleEnabled(subtitleEnabled)
+                    applySubtitleEnabled(subtitleEnabled)
+                    if (!subtitleCandidatesByUri.containsKey(videoUri)) {
+                        requestSubtitleCandidates(videoUri, index, subtitleResolveGeneration)
                     }
                 }
                 recordRecentPlayback(entry.uri, entry.title, 0L, 0L)
@@ -435,7 +447,7 @@ class PlayerActivity : BaseActivity() {
 
             override fun onPlayerErrorChanged(error: PlaybackException?) {
                 if (error != null) {
-                    clearPendingSeekState()
+                    seekController.cancel()
                 }
                 updatePlaybackUi(error)
             }
@@ -477,12 +489,15 @@ class PlayerActivity : BaseActivity() {
         uiHandler.removeCallbacks(hideResumeButtonRunnable)
         resumeButton.visibility = View.GONE
         clearSubtitleCache()
+        subtitleResolveGeneration++
+        subtitleCandidatesByUri.clear()
+        pendingSubtitleRequests.clear()
         selectedSubtitle = null
         loadSubtitlePreferences()
         loadPlaybackOptions()
         loadPlaybackSpeed()
-        subtitleCandidates = loadSubtitleCandidates(videoUri)
-        autoSelectSubtitleIfAvailable()
+        subtitleCandidates = emptyList()
+        requestSubtitleCandidatesForPlaylist()
         updateSubtitleButtonState()
         updateRepeatButton()
         updateShuffleButton()
@@ -493,7 +508,8 @@ class PlayerActivity : BaseActivity() {
         }
 
         val activePlayer = player ?: return
-        clearPendingSeekState()
+        playbackSessionId++
+        seekController.cancel()
         val resumePosition = resolveResumePosition()
         val items = buildMediaItems()
         val startIndex = playlistIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
@@ -557,7 +573,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun releasePlayer() {
-        clearPendingSeekState()
+        seekController.cancel()
         player?.release()
         player = null
     }
@@ -593,6 +609,10 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun updatePlayPauseIcon(isPlaying: Boolean) {
+        if (renderedIsPlaying == isPlaying) {
+            return
+        }
+        renderedIsPlaying = isPlaying
         val icon = if (isPlaying) {
             R.drawable.ic_pause
         } else {
@@ -622,130 +642,81 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun updateProgress(positionMs: Long, durationMs: Long) {
+        val positionSeconds = positionMs.coerceAtLeast(0L) / 1000L
         if (durationMs == C.TIME_UNSET || durationMs <= 0) {
-            seekBar.isEnabled = false
-            durationText.text = "--:--"
-            positionText.text = formatTime(positionMs)
+            if (seekBar.isEnabled) {
+                seekBar.isEnabled = false
+            }
+            if (renderedDurationSeconds != C.TIME_UNSET) {
+                renderedDurationSeconds = C.TIME_UNSET
+                durationText.text = "--:--"
+            }
+            if (renderedPositionSeconds != positionSeconds) {
+                renderedPositionSeconds = positionSeconds
+                positionText.text = formatTime(positionMs)
+            }
             return
         }
-        seekBar.isEnabled = true
+        if (!seekBar.isEnabled) {
+            seekBar.isEnabled = true
+        }
         val safeDuration = durationMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        seekBar.max = safeDuration
-        seekBar.progress = positionMs.coerceAtMost(safeDuration.toLong()).toInt()
-        positionText.text = formatTime(positionMs)
-        durationText.text = formatTime(durationMs)
+        if (seekBar.max != safeDuration) {
+            seekBar.max = safeDuration
+        }
+        val safePosition = positionMs.coerceIn(0L, safeDuration.toLong()).toInt()
+        if (seekBar.progress != safePosition) {
+            seekBar.progress = safePosition
+        }
+        if (renderedPositionSeconds != positionSeconds) {
+            renderedPositionSeconds = positionSeconds
+            positionText.text = formatTime(positionMs)
+        }
+        val durationSeconds = durationMs / 1000L
+        if (renderedDurationSeconds != durationSeconds) {
+            renderedDurationSeconds = durationSeconds
+            durationText.text = formatTime(durationMs)
+        }
+    }
+
+    private fun Player.toPlaybackSnapshot(): PlaybackSnapshot {
+        val knownDuration = duration.takeIf { it != C.TIME_UNSET && it > 0L }
+        return PlaybackSnapshot(
+            sessionId = playbackSessionId,
+            mediaItemIndex = currentMediaItemIndex,
+            positionMs = currentPosition.coerceAtLeast(0L),
+            durationMs = knownDuration,
+            isReady = playbackState == Player.STATE_READY,
+            isLoading = isLoading
+        )
     }
 
     private fun requestSeek(targetMs: Long, source: SeekSource) {
         val activePlayer = player ?: return
-        val clampedTarget = clampSeekPosition(targetMs, activePlayer.duration)
-        pendingSeekTargetMs = clampedTarget
-        pendingSeekDisplayPositionMs = clampedTarget
-        pendingSeekRequestedAtMs = SystemClock.elapsedRealtime()
-        pendingSeekApplied = false
-        pendingSeekSource = source
-        activePlayer.setSeekParameters(seekParametersFor(source))
-        updateProgress(clampedTarget, activePlayer.duration)
+        dispatchSeek(seekController.seekTo(targetMs, source, activePlayer.toPlaybackSnapshot()))
+    }
+
+    private fun dispatchSeek(command: SeekCommand) {
+        val activePlayer = player ?: return
+        val parameters = when (command.accuracy) {
+            SeekAccuracy.EXACT -> SeekParameters.EXACT
+            SeekAccuracy.CLOSEST_SYNC -> SeekParameters.CLOSEST_SYNC
+        }
+        activePlayer.setSeekParameters(parameters)
+        updateProgress(command.targetMs, activePlayer.duration)
         updatePlaybackUi()
-        activePlayer.seekTo(clampedTarget)
-    }
-
-    private fun maybeCompletePendingSeek(activePlayer: Player) {
-        if (!hasPendingSeek()) {
-            return
-        }
-        if (!pendingSeekApplied) {
-            val elapsedMs = SystemClock.elapsedRealtime() - pendingSeekRequestedAtMs
-            if (elapsedMs < SEEK_APPLY_FALLBACK_MS ||
-                !isSeekPositionSettled(activePlayer.currentPosition, pendingSeekTargetMs, pendingSeekSource)
-            ) {
-                return
-            }
-            pendingSeekApplied = true
-            pendingSeekDisplayPositionMs = activePlayer.currentPosition.coerceAtLeast(0L)
-        }
-        val ready = activePlayer.playbackState == Player.STATE_READY
-        if (ready && !activePlayer.isLoading) {
-            completePendingSeek(activePlayer)
-        }
-    }
-
-    private fun completePendingSeek(activePlayer: Player) {
-        if (!hasPendingSeek()) {
-            return
-        }
-        clearPendingSeekState()
-        updateProgress(activePlayer.currentPosition.coerceAtLeast(0L), activePlayer.duration)
-    }
-
-    private fun hasPendingSeek(): Boolean = pendingSeekTargetMs != C.TIME_UNSET
-
-    private fun clearPendingSeekState() {
-        pendingSeekTargetMs = C.TIME_UNSET
-        pendingSeekDisplayPositionMs = C.TIME_UNSET
-        pendingSeekRequestedAtMs = 0L
-        pendingSeekApplied = false
-    }
-
-    private fun resolveDisplayedPosition(activePlayer: Player): Long {
-        return if (hasPendingSeek() && pendingSeekDisplayPositionMs != C.TIME_UNSET) {
-            pendingSeekDisplayPositionMs
-        } else {
-            activePlayer.currentPosition.coerceAtLeast(0L)
-        }
-    }
-
-    private fun currentInteractivePosition(activePlayer: Player): Long {
-        return if (hasPendingSeek()) {
-            resolveDisplayedPosition(activePlayer)
-        } else {
-            activePlayer.currentPosition.coerceAtLeast(0L)
-        }
-    }
-
-    private fun clampSeekPosition(targetMs: Long, durationMs: Long): Long {
-        return if (durationMs == C.TIME_UNSET || durationMs <= 0L) {
-            targetMs.coerceAtLeast(0L)
-        } else {
-            targetMs.coerceIn(0L, durationMs)
-        }
-    }
-
-    private fun seekParametersFor(source: SeekSource): SeekParameters {
-        return when (source) {
-            SeekSource.SEEK_BAR,
-            SeekSource.SWIPE,
-            SeekSource.RESTART -> SeekParameters.EXACT
-
-            SeekSource.DOUBLE_TAP -> DEFAULT_SEEK_PARAMETERS
-        }
-    }
-
-    private fun isSeekPositionSettled(
-        actualPositionMs: Long,
-        expectedPositionMs: Long,
-        source: SeekSource
-    ): Boolean {
-        val toleranceMs = when (source) {
-            SeekSource.SEEK_BAR,
-            SeekSource.SWIPE,
-            SeekSource.RESTART -> EXACT_SEEK_SETTLE_TOLERANCE_MS
-
-            SeekSource.DOUBLE_TAP -> SYNC_SEEK_SETTLE_TOLERANCE_MS
-        }
-        return kotlin.math.abs(actualPositionMs - expectedPositionMs) <= toleranceMs
+        activePlayer.seekTo(command.targetMs)
     }
 
     private fun seekBy(deltaMs: Long) {
         val activePlayer = player ?: return
-        val duration = activePlayer.duration
-        val basePosition = currentInteractivePosition(activePlayer)
-        val target = if (duration != C.TIME_UNSET && duration > 0) {
-            (basePosition + deltaMs).coerceIn(0, duration)
-        } else {
-            (basePosition + deltaMs).coerceAtLeast(0)
-        }
-        requestSeek(target, SeekSource.DOUBLE_TAP)
+        dispatchSeek(
+            seekController.seekBy(
+                deltaMs,
+                SeekSource.DOUBLE_TAP,
+                activePlayer.toPlaybackSnapshot()
+            )
+        )
         showGestureText(if (deltaMs > 0) "+10s" else "-10s")
         scheduleOverlayHide()
     }
@@ -824,13 +795,14 @@ class PlayerActivity : BaseActivity() {
                 swipeMode = SwipeMode.NONE
                 startBrightness = getCurrentBrightness()
                 startVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
-                swipeSeekStartPositionMs = player?.let(::currentInteractivePosition) ?: 0L
-                swipeSeekTargetPositionMs = swipeSeekStartPositionMs
+                swipeSeekStartPositionMs = player?.let {
+                    seekController.interactivePosition(it.toPlaybackSnapshot())
+                } ?: 0L
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = event.y - startY
                 val dx = event.x - startX
-                if (!isAdjusting) {
+                    if (!isAdjusting) {
                     val absDx = kotlin.math.abs(dx)
                     val absDy = kotlin.math.abs(dy)
                     if (absDx <= swipeThresholdPx && absDy <= swipeThresholdPx) {
@@ -841,6 +813,9 @@ class PlayerActivity : BaseActivity() {
                         SwipeMode.HORIZONTAL
                     } else {
                         SwipeMode.VERTICAL
+                    }
+                    if (swipeMode == SwipeMode.HORIZONTAL) {
+                        player?.let { seekController.startPreview(it.toPlaybackSnapshot()) }
                     }
                 }
                 if (swipeMode == SwipeMode.HORIZONTAL) {
@@ -857,8 +832,8 @@ class PlayerActivity : BaseActivity() {
                     } else {
                         (swipeSeekStartPositionMs + kotlin.math.round(seekDelta).toLong()).coerceIn(0L, duration)
                     }
-                    swipeSeekTargetPositionMs = target
-                    updateProgress(target, duration)
+                    val seekUi = seekController.updatePreview(target, activePlayer.toPlaybackSnapshot())
+                    updateProgress(seekUi.displayedPositionMs, duration)
                     val deltaLabel = formatTime(kotlin.math.abs(target - swipeSeekStartPositionMs))
                     val direction = if (target >= swipeSeekStartPositionMs) "+" else "-"
                     val positionLabel = formatTime(target)
@@ -891,8 +866,10 @@ class PlayerActivity : BaseActivity() {
                 if (swipeMode == SwipeMode.HORIZONTAL) {
                     val activePlayer = player
                     if (event.actionMasked == MotionEvent.ACTION_UP && activePlayer != null) {
-                        requestSeek(swipeSeekTargetPositionMs, SeekSource.SWIPE)
+                        seekController.commitPreview(SeekSource.SWIPE, activePlayer.toPlaybackSnapshot())
+                            ?.let(::dispatchSeek)
                     } else if (activePlayer != null) {
+                        seekController.cancel()
                         updateProgress(activePlayer.currentPosition, activePlayer.duration)
                     }
                 }
@@ -997,7 +974,10 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun showSubtitleSettingsDialog() {
-        subtitleCandidates = loadSubtitleCandidates(videoUri)
+        subtitleCandidates = subtitleCandidatesByUri[videoUri].orEmpty()
+        if (!subtitleCandidatesByUri.containsKey(videoUri)) {
+            requestSubtitleCandidates(videoUri, playlistIndex, subtitleResolveGeneration)
+        }
         val content = layoutInflater.inflate(R.layout.dialog_subtitle_settings, null)
         val enableSwitch = content.findViewById<SwitchCompat>(R.id.subtitleEnableSwitch)
         val selectRow = content.findViewById<View>(R.id.subtitleSelectRow)
@@ -1177,7 +1157,12 @@ class PlayerActivity : BaseActivity() {
 
     private fun buildMediaItems(): List<MediaItem> {
         return playlistEntries.map { entry ->
-            val subtitle = if (entry.uri == videoUri) selectedSubtitle else null
+            val subtitle = when {
+                entry.uri == videoUri && selectedSubtitle != null -> selectedSubtitle
+                subtitleEnabled && preferredSubtitleEncoding.equals(ENCODING_UTF8, true) ->
+                    subtitleCandidatesByUri[entry.uri]?.firstOrNull()
+                else -> null
+            }
             buildMediaItem(entry, subtitle)
         }
     }
@@ -1355,7 +1340,7 @@ class PlayerActivity : BaseActivity() {
             clearPlaybackError()
         }
         val buffering = activePlayer.playbackState == Player.STATE_BUFFERING || activePlayer.isLoading
-        val seeking = hasPendingSeek()
+        val seeking = seekController.isSeeking()
         updateLoadingSpinner((buffering || seeking) && error == null)
         updatePlayPauseIcon(activePlayer.isPlaying)
     }
@@ -1575,6 +1560,79 @@ class PlayerActivity : BaseActivity() {
         persistSubtitleEnabled()
     }
 
+    private fun requestSubtitleCandidatesForPlaylist() {
+        val generation = subtitleResolveGeneration
+        val currentIndex = playlistIndex
+        val orderedIndices = playlistEntries.indices.sortedBy { kotlin.math.abs(it - currentIndex) }
+        orderedIndices.forEach { index ->
+            val uri = playlistEntries[index].uri
+            requestSubtitleCandidates(uri, index, generation)
+        }
+    }
+
+    private fun requestSubtitleCandidates(uri: Uri, index: Int, generation: Long) {
+        val requestKey = generation to uri
+        if (subtitleCandidatesByUri.containsKey(uri) ||
+            pendingSubtitleRequests.contains(requestKey) ||
+            subtitleResolver.isShutdown
+        ) {
+            return
+        }
+        pendingSubtitleRequests.add(requestKey)
+        subtitleResolver.execute {
+            val candidates = loadSubtitleCandidates(uri)
+            uiHandler.post {
+                pendingSubtitleRequests.remove(requestKey)
+                if (generation != subtitleResolveGeneration || isDestroyed) {
+                    return@post
+                }
+                val entry = playlistEntries.getOrNull(index)
+                if (entry?.uri != uri) {
+                    return@post
+                }
+                subtitleCandidatesByUri[uri] = candidates
+                if (uri == videoUri && index == playlistIndex) {
+                    subtitleCandidates = candidates
+                    loadSubtitlePreferences()
+                    autoSelectSubtitleIfAvailable()
+                    updateSubtitleButtonState()
+                    attachResolvedSubtitleToCurrentItem()
+                } else {
+                    attachResolvedSubtitleToQueuedItem(index, entry, candidates.firstOrNull())
+                }
+            }
+        }
+    }
+
+    private fun attachResolvedSubtitleToCurrentItem() {
+        val source = selectedSubtitle ?: return
+        val activePlayer = player ?: return
+        val currentItem = activePlayer.currentMediaItem ?: return
+        val alreadyAttached = currentItem.localConfiguration
+            ?.subtitleConfigurations
+            ?.any { it.uri == source.uri } == true
+        if (!alreadyAttached) {
+            applySubtitleSelection(source)
+        }
+    }
+
+    private fun attachResolvedSubtitleToQueuedItem(
+        index: Int,
+        entry: PlaylistEntry,
+        source: SubtitleSource?
+    ) {
+        if (!subtitleEnabled || source == null ||
+            !preferredSubtitleEncoding.equals(ENCODING_UTF8, true)
+        ) {
+            return
+        }
+        val activePlayer = player ?: return
+        if (index == activePlayer.currentMediaItemIndex || index >= activePlayer.mediaItemCount) {
+            return
+        }
+        activePlayer.replaceMediaItem(index, buildMediaItem(entry, source))
+    }
+
     private fun persistSubtitleEnabled() {
         subtitlePreferences.edit()
             .putBoolean(KEY_SUBTITLE_ENABLED, subtitleEnabled)
@@ -1786,13 +1844,6 @@ class PlayerActivity : BaseActivity() {
         HORIZONTAL
     }
 
-    private enum class SeekSource {
-        SEEK_BAR,
-        SWIPE,
-        DOUBLE_TAP,
-        RESTART
-    }
-
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             showOverlay()
@@ -1842,10 +1893,6 @@ class PlayerActivity : BaseActivity() {
         private const val GESTURE_TEXT_HIDE_MS = 1000L
         private const val SWIPE_SEEK_MAX_RANGE_MS = 10 * 60 * 1000L
         private const val LOADING_SPINNER_DELAY_MS = 150L
-        private val DEFAULT_SEEK_PARAMETERS = SeekParameters.CLOSEST_SYNC
-        private const val SEEK_APPLY_FALLBACK_MS = 750L
-        private const val EXACT_SEEK_SETTLE_TOLERANCE_MS = 350L
-        private const val SYNC_SEEK_SETTLE_TOLERANCE_MS = 1_500L
         private const val PREFS = "nsplayer_prefs"
         private const val KEY_SUBTITLE_ENABLED = "subtitle_enabled"
         private const val KEY_SUBTITLE_LANGUAGE = "subtitle_language"
