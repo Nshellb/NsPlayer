@@ -58,7 +58,7 @@ internal fun MainActivity.showItemPropertiesDialog(item: DisplayItem) {
     content.findViewById<TextView>(R.id.propertiesModifiedValue).text = properties.modified
     content.findViewById<TextView>(R.id.propertiesSubtitleValue).text = properties.subtitle
 
-    val dialog = AlertDialog.Builder(this)
+    val dialog = AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
         .setView(content)
         .create()
     dialog.setCanceledOnTouchOutside(true)
