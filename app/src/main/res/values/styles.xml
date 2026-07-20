@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Widget.NsPlayer.PopupHeader" parent="">
+        <item name="android:background">?attr/colorPrimary</item>
+        <item name="android:padding">12dp</item>
+    </style>
+
+    <style name="TextAppearance.NsPlayer.PopupHeader" parent="TextAppearance.MaterialComponents.Subtitle1">
+        <item name="android:textColor">?attr/colorOnPrimary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Widget.NsPlayer.PrimaryButton" parent="Widget.MaterialComponents.Button">
+        <item name="android:backgroundTint">?attr/colorPrimary</item>
+        <item name="android:textColor">?attr/colorOnPrimary</item>
+    </style>
+
+    <style name="Widget.NsPlayer.DialogInput" parent="Widget.AppCompat.EditText">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textColorHint">?android:attr/textColorHint</item>
+        <item name="android:textCursorDrawable">@drawable/cursor_brand_green</item>
+        <item name="android:textSelectHandle">@drawable/text_select_handle_middle_brand_green</item>
+        <item name="android:textSelectHandleLeft">@drawable/text_select_handle_left_brand_green</item>
+        <item name="android:textSelectHandleRight">@drawable/text_select_handle_right_brand_green</item>
+    </style>
+
+    <style name="Widget.NsPlayer.Divider" parent="">
+        <item name="android:layout_height">1dp</item>
+        <item name="android:background">?attr/colorOnSurface</item>
+        <item name="android:alpha">0.12</item>
+    </style>
+</resources>

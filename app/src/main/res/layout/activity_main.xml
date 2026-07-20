@@ -9,7 +9,7 @@
         android:id="@+id/topBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/brand_green"
+        android:background="?attr/colorPrimary"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:padding="12dp">
@@ -21,7 +21,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/back"
             android:src="@drawable/ic_back"
-            android:tint="@color/white"
+            android:tint="?attr/colorOnPrimary"
             android:visibility="gone" />
 
         <TextView
@@ -32,7 +32,7 @@
             android:paddingStart="12dp"
             android:text="@string/header_title"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
-            android:textColor="@color/white" />
+            android:textColor="?attr/colorOnPrimary" />
 
         <LinearLayout
             android:id="@+id/searchFieldContainer"
@@ -56,8 +56,8 @@
                 android:imeOptions="actionSearch"
                 android:inputType="text"
                 android:maxLines="1"
-                android:textColor="@color/white"
-                android:textColorHint="#B3FFFFFF"
+                android:textColor="?attr/colorOnPrimary"
+                android:textColorHint="@color/on_brand_primary_muted"
                 android:textCursorDrawable="@drawable/cursor_black"
                 android:textSelectHandle="@drawable/text_select_handle_middle_black"
                 android:textSelectHandleLeft="@drawable/text_select_handle_left_black"
@@ -71,7 +71,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/search_close"
             android:src="@drawable/ic_close"
-            android:tint="@color/white"
+            android:tint="?attr/colorOnPrimary"
             android:visibility="gone" />
 
         <ImageButton
@@ -81,7 +81,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/search_button"
             android:src="@drawable/ic_search"
-            android:tint="@color/white" />
+            android:tint="?attr/colorOnPrimary" />
 
         <ImageButton
             android:id="@+id/settingsButton"
@@ -90,14 +90,14 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/browse_mode_button"
             android:src="@drawable/ic_settings"
-            android:tint="@color/white" />
+            android:tint="?attr/colorOnPrimary" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/searchPreviewList"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/white"
+        android:background="?attr/colorSurface"
         android:clipToPadding="false"
         android:scrollbars="vertical"
         android:visibility="gone" />
@@ -171,7 +171,7 @@
         android:id="@+id/selectionBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/brand_green"
+        android:background="?attr/colorPrimary"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:padding="12dp"
@@ -185,7 +185,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/play_selected"
             android:src="@drawable/ic_play"
-            android:tint="@color/white" />
+            android:tint="?attr/colorOnPrimary" />
 
         <ImageButton
             android:id="@+id/selectionAllButton"
@@ -195,7 +195,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/select_all"
             android:src="@drawable/ic_select_all"
-            android:tint="@color/white" />
+            android:tint="?attr/colorOnPrimary" />
 
         <Button
             android:id="@+id/selectionMoveButton"
@@ -207,7 +207,7 @@
             android:maxLines="1"
             android:textSize="12sp"
             android:text="@string/move"
-            android:textColor="@color/white" />
+            android:textColor="?attr/colorOnPrimary" />
 
         <Button
             android:id="@+id/selectionCopyButton"
@@ -219,7 +219,7 @@
             android:maxLines="1"
             android:textSize="12sp"
             android:text="@string/copy"
-            android:textColor="@color/white" />
+            android:textColor="?attr/colorOnPrimary" />
 
         <Button
             android:id="@+id/selectionDeleteButton"
@@ -231,7 +231,7 @@
             android:maxLines="1"
             android:textSize="12sp"
             android:text="@string/delete"
-            android:textColor="@color/white" />
+            android:textColor="?attr/colorOnPrimary" />
     </LinearLayout>
 
 </LinearLayout>

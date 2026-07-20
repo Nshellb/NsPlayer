@@ -6,9 +6,9 @@
 
     <LinearLayout
         android:id="@+id/bottomSheetHeader"
+        style="@style/Widget.NsPlayer.PopupHeader"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/brand_green"
         android:padding="16dp">
 
         <TextView
@@ -17,9 +17,7 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
-            android:textColor="@color/white"
-            android:textStyle="bold" />
+            android:textAppearance="@style/TextAppearance.NsPlayer.PopupHeader" />
     </LinearLayout>
 
     <LinearLayout

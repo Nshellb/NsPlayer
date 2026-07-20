@@ -28,9 +28,10 @@ import android.widget.TextView
 import com.nshell.nsplayer.data.recent.RecentPlaybackStore
 import com.nshell.nsplayer.data.settings.SettingsRepository
 import com.nshell.nsplayer.ui.base.BaseActivity
+import com.nshell.nsplayer.ui.base.themeColor
 import com.nshell.nsplayer.R
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -533,7 +534,7 @@ class PlayerActivity : BaseActivity() {
         pipButton.visibility = if (supportsPictureInPicture) View.VISIBLE else View.GONE
         pipButton.isEnabled = supportsPictureInPicture
         val pipColor = if (autoPipEnabled) {
-            getColor(R.color.brand_green)
+            themeColor(com.google.android.material.R.attr.colorPrimary)
         } else {
             getColor(android.R.color.white)
         }
@@ -1018,7 +1019,7 @@ class PlayerActivity : BaseActivity() {
             showSubtitleEncodingDialog(encodingValue)
         }
 
-        val dialog = AlertDialog.Builder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.subtitle_settings)
             .setView(content)
             .setPositiveButton(R.string.confirm, null)
@@ -1051,7 +1052,7 @@ class PlayerActivity : BaseActivity() {
             }
         }.toTypedArray()
 
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(R.string.subtitle_select)
             .setItems(labels) { _, which ->
                 when (val choice = options[which]) {
@@ -1090,7 +1091,7 @@ class PlayerActivity : BaseActivity() {
         val labels = options.map { it.label }.toTypedArray()
         val currentIndex = options.indexOfFirst { it.code == preferredSubtitleLanguage }
             .takeIf { it >= 0 } ?: 0
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(R.string.subtitle_language)
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
                 preferredSubtitleLanguage = options[which].code
@@ -1115,7 +1116,7 @@ class PlayerActivity : BaseActivity() {
         val labels = options.map { it.label }.toTypedArray()
         val currentIndex = options.indexOfFirst { it.code == preferredSubtitleEncoding }
             .takeIf { it >= 0 } ?: 0
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(R.string.subtitle_encoding)
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
                 preferredSubtitleEncoding = options[which].code
@@ -1424,7 +1425,11 @@ class PlayerActivity : BaseActivity() {
         }
         repeatButton.setImageResource(icon)
         val active = repeatMode != Player.REPEAT_MODE_OFF
-        val color = if (active) getColor(R.color.brand_green) else getColor(android.R.color.white)
+        val color = if (active) {
+            themeColor(com.google.android.material.R.attr.colorPrimary)
+        } else {
+            getColor(android.R.color.white)
+        }
         repeatButton.setColorFilter(color)
         repeatButton.alpha = if (active) 1f else 1f
         updateNavigationButtons()
@@ -1437,7 +1442,11 @@ class PlayerActivity : BaseActivity() {
             getString(R.string.playback_shuffle_off)
         }
         shuffleButton.contentDescription = label
-        val color = if (shuffleEnabled) getColor(R.color.brand_green) else getColor(android.R.color.white)
+        val color = if (shuffleEnabled) {
+            themeColor(com.google.android.material.R.attr.colorPrimary)
+        } else {
+            getColor(android.R.color.white)
+        }
         shuffleButton.setColorFilter(color)
         shuffleButton.alpha = if (shuffleEnabled) 1f else 0.7f
     }
@@ -1447,7 +1456,7 @@ class PlayerActivity : BaseActivity() {
         val labels = speeds.map { formatSpeedLabel(it) }.toTypedArray()
         val checked = speeds.indexOfFirst { kotlin.math.abs(it - playbackSpeed) < 0.01f }
             .takeIf { it >= 0 } ?: 2
-        AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
+        MaterialAlertDialogBuilder(this)
             .setTitle(R.string.playback_speed)
             .setSingleChoiceItems(labels, checked) { dialog, which ->
                 setPlaybackSpeed(speeds[which])
@@ -1522,7 +1531,7 @@ class PlayerActivity : BaseActivity() {
     private fun updateSubtitleButtonState() {
         val active = subtitleEnabled
         val color = if (active) {
-            getColor(R.color.brand_green)
+            themeColor(com.google.android.material.R.attr.colorPrimary)
         } else {
             getColor(android.R.color.white)
         }

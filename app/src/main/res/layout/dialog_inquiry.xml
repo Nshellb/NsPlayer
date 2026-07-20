@@ -16,6 +16,7 @@
 
     <EditText
         android:id="@+id/inquirySubjectInput"
+        style="@style/Widget.NsPlayer.DialogInput"
         android:layout_width="match_parent"
         android:layout_height="44dp"
         android:layout_marginTop="6dp"
@@ -26,8 +27,7 @@
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
         android:paddingTop="8dp"
-        android:paddingBottom="8dp"
-        android:textCursorDrawable="@drawable/cursor_brand_green" />
+        android:paddingBottom="8dp" />
 
     <TextView
         android:layout_width="match_parent"
@@ -38,6 +38,7 @@
 
     <EditText
         android:id="@+id/inquiryMessageInput"
+        style="@style/Widget.NsPlayer.DialogInput"
         android:layout_width="match_parent"
         android:layout_height="140dp"
         android:layout_marginTop="6dp"
@@ -51,7 +52,6 @@
         android:paddingTop="8dp"
         android:paddingBottom="8dp"
         android:scrollHorizontally="false"
-        android:scrollbars="vertical"
-        android:textCursorDrawable="@drawable/cursor_brand_green" />
+        android:scrollbars="vertical" />
 
 </LinearLayout>

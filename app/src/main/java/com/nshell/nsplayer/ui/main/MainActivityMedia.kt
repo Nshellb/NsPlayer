@@ -11,7 +11,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.documentfile.provider.DocumentFile
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.nshell.nsplayer.R
@@ -58,7 +58,7 @@ internal fun MainActivity.showItemPropertiesDialog(item: DisplayItem) {
     content.findViewById<TextView>(R.id.propertiesModifiedValue).text = properties.modified
     content.findViewById<TextView>(R.id.propertiesSubtitleValue).text = properties.subtitle
 
-    val dialog = AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
+    val dialog = MaterialAlertDialogBuilder(this)
         .setView(content)
         .create()
     dialog.setCanceledOnTouchOutside(true)
@@ -103,7 +103,7 @@ internal fun MainActivity.showRenameDialog(item: DisplayItem) {
     } else {
         input.setSelection(0, currentName.length)
     }
-    AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
+    MaterialAlertDialogBuilder(this)
         .setTitle(R.string.rename_title)
         .setView(content)
         .setPositiveButton(R.string.confirm) { _, _ ->

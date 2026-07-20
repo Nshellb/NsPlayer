@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.data.settings.VisibleItem
+import com.nshell.nsplayer.ui.base.themeColor
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -243,7 +244,7 @@ class VideoListAdapter :
 
         val selected = selectionKeyOf(item)?.let { selectedKeys.contains(it) } == true
         holder.itemView.setBackgroundColor(
-            if (selected) holder.itemView.context.getColor(R.color.selection_bg) else Color.TRANSPARENT
+            if (selected) holder.itemView.context.getColor(R.color.selection_overlay) else Color.TRANSPARENT
         )
     }
 
@@ -301,7 +302,9 @@ class VideoListAdapter :
                 ImageView.ScaleType.CENTER_INSIDE
             }
             thumbnail.setPadding(0, 0, 0, 0)
-            thumbnail.setColorFilter(thumbnail.context.getColor(R.color.brand_green))
+            thumbnail.setColorFilter(
+                thumbnail.context.themeColor(com.google.android.material.R.attr.colorPrimary)
+            )
         }
 
         holder.folderIcon?.visibility = if (
@@ -483,7 +486,9 @@ class VideoListAdapter :
             Glide.with(thumbnail.context).clear(thumbnail)
             thumbnail.setImageResource(R.drawable.ic_video)
             thumbnail.scaleType = ImageView.ScaleType.CENTER_INSIDE
-            thumbnail.setColorFilter(thumbnail.context.getColor(R.color.brand_green))
+            thumbnail.setColorFilter(
+                thumbnail.context.themeColor(com.google.android.material.R.attr.colorPrimary)
+            )
         }
     }
 

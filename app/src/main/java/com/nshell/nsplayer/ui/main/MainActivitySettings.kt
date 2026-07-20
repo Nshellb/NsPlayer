@@ -5,9 +5,10 @@ import android.view.View
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.ui.settings.advanced.AdvancedSettingsActivity
+import com.nshell.nsplayer.ui.base.themeColor
 
 internal fun MainActivity.showSettingsDialog(anchor: View) {
     val content = layoutInflater.inflate(R.layout.popup_settings, null)
@@ -35,7 +36,7 @@ internal fun MainActivity.showSettingsDialog(anchor: View) {
     val cancelButton = content.findViewById<Button>(R.id.settingsCancel)
     val confirmButton = content.findViewById<Button>(R.id.settingsConfirm)
     val defaultColor = modeFolders.currentTextColor
-    val selectedColor = getColor(R.color.brand_green)
+    val selectedColor = themeColor(com.google.android.material.R.attr.colorPrimary)
     var pendingMode = browserState.currentMode
     var pendingDisplay = browserState.videoDisplayMode
     var pendingTileSpan = browserState.tileSpanCount
@@ -80,7 +81,7 @@ internal fun MainActivity.showSettingsDialog(anchor: View) {
         defaultColor
     )
 
-    val dialog = AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
+    val dialog = MaterialAlertDialogBuilder(this)
         .setView(content)
         .create()
     dialog.setCanceledOnTouchOutside(true)

@@ -16,6 +16,7 @@ import android.view.translation.TranslationManager
 import android.view.translation.TranslationSpec
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
@@ -468,7 +469,7 @@ class AdvancedSettingsActivity : BaseActivity() {
         val content = layoutInflater.inflate(R.layout.dialog_inquiry, null)
         val subjectInput = content.findViewById<EditText>(R.id.inquirySubjectInput)
         val messageInput = content.findViewById<EditText>(R.id.inquiryMessageInput)
-        val dialog = AlertDialog.Builder(this, R.style.ThemeOverlay_NsPlayer_Dialog)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.advanced_settings_inquiry_title)
             .setView(content)
             .setPositiveButton(R.string.inquiry_send, null)

@@ -41,12 +41,10 @@
 
         <View
             android:id="@+id/advancedDividerLanguage"
+            style="@style/Widget.NsPlayer.Divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="?android:attr/textColorSecondary"
-            android:alpha="0.12" />
+            android:layout_marginBottom="12dp" />
 
         <LinearLayout
             android:id="@+id/advancedThemeRow"
@@ -73,12 +71,10 @@
 
         <View
             android:id="@+id/advancedDividerTheme"
+            style="@style/Widget.NsPlayer.Divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="?android:attr/textColorSecondary"
-            android:alpha="0.12" />
+            android:layout_marginBottom="12dp" />
 
         <include
             android:id="@+id/advancedSearchFoldersRow"
@@ -86,12 +82,10 @@
 
         <View
             android:id="@+id/advancedDividerSearchFolders"
+            style="@style/Widget.NsPlayer.Divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="?android:attr/textColorSecondary"
-            android:alpha="0.12" />
+            android:layout_marginBottom="12dp" />
 
         <TextView
             android:id="@+id/advancedVisibleItemsTitle"
@@ -105,12 +99,10 @@
 
         <View
             android:id="@+id/advancedDividerVisibleItems"
+            style="@style/Widget.NsPlayer.Divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="?android:attr/textColorSecondary"
-            android:alpha="0.12" />
+            android:layout_marginBottom="12dp" />
 
         <include
             android:id="@+id/advancedNoMediaRow"
@@ -118,12 +110,10 @@
 
         <View
             android:id="@+id/advancedDividerNoMedia"
+            style="@style/Widget.NsPlayer.Divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="?android:attr/textColorSecondary"
-            android:alpha="0.12" />
+            android:layout_marginBottom="12dp" />
 
         <include
             android:id="@+id/advancedAutoPipRow"
@@ -131,12 +121,10 @@
 
         <View
             android:id="@+id/advancedDividerAutoPip"
+            style="@style/Widget.NsPlayer.Divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="?android:attr/textColorSecondary"
-            android:alpha="0.12" />
+            android:layout_marginBottom="12dp" />
 
         <LinearLayout
             android:id="@+id/advancedTranslationEngineContainer"
@@ -179,12 +167,10 @@
 
         <View
             android:id="@+id/advancedDividerTranslationEngine"
+            style="@style/Widget.NsPlayer.Divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
             android:layout_marginTop="12dp"
             android:layout_marginBottom="12dp"
-            android:background="?android:attr/textColorSecondary"
-            android:alpha="0.12"
             android:visibility="gone" />
 
         <include

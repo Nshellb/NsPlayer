@@ -9,6 +9,7 @@
 
     <EditText
         android:id="@+id/renameInput"
+        style="@style/Widget.NsPlayer.DialogInput"
         android:layout_width="match_parent"
         android:layout_height="40dp"
         android:background="@drawable/bg_rename_input"
@@ -20,10 +21,6 @@
         android:maxLines="1"
         android:minHeight="0dp"
         android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:textCursorDrawable="@drawable/cursor_black"
-        android:textSelectHandle="@drawable/text_select_handle_middle_black"
-        android:textSelectHandleLeft="@drawable/text_select_handle_left_black"
-        android:textSelectHandleRight="@drawable/text_select_handle_right_black" />
+        android:paddingBottom="4dp" />
 
 </FrameLayout>

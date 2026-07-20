@@ -39,7 +39,7 @@
                 android:padding="6dp"
                 android:text="@string/search_folders_select_all"
                 android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
-                android:textColor="@color/brand_green" />
+                android:textColor="?attr/colorPrimary" />
 
             <TextView
                 android:id="@+id/searchFoldersClear"
@@ -50,7 +50,7 @@
                 android:padding="6dp"
                 android:text="@string/search_folders_clear"
                 android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
-                android:textColor="@color/brand_green" />
+                android:textColor="?attr/colorPrimary" />
         </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView

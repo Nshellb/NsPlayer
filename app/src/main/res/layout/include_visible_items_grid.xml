@@ -12,7 +12,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_columnWeight="1"
-        android:buttonTint="@color/brand_green"
+        android:buttonTint="?attr/colorControlActivated"
         android:text="@string/advanced_visible_thumbnail" />
 
     <CheckBox
@@ -20,7 +20,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_columnWeight="1"
-        android:buttonTint="@color/brand_green"
+        android:buttonTint="?attr/colorControlActivated"
         android:text="@string/advanced_visible_duration" />
 
     <CheckBox
@@ -28,7 +28,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_columnWeight="1"
-        android:buttonTint="@color/brand_green"
+        android:buttonTint="?attr/colorControlActivated"
         android:text="@string/advanced_visible_extension" />
 
     <CheckBox
@@ -36,7 +36,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_columnWeight="1"
-        android:buttonTint="@color/brand_green"
+        android:buttonTint="?attr/colorControlActivated"
         android:text="@string/advanced_visible_resolution" />
 
     <CheckBox
@@ -44,7 +44,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_columnWeight="1"
-        android:buttonTint="@color/brand_green"
+        android:buttonTint="?attr/colorControlActivated"
         android:text="@string/advanced_visible_frame_rate" />
 
     <CheckBox
@@ -52,7 +52,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_columnWeight="1"
-        android:buttonTint="@color/brand_green"
+        android:buttonTint="?attr/colorControlActivated"
         android:text="@string/advanced_visible_size" />
 
     <CheckBox
@@ -60,6 +60,6 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_columnWeight="1"
-        android:buttonTint="@color/brand_green"
+        android:buttonTint="?attr/colorControlActivated"
         android:text="@string/advanced_visible_modified" />
 </GridLayout>

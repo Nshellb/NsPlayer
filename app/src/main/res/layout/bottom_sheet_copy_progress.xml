@@ -64,8 +64,8 @@
         android:indeterminate="false"
         android:max="100"
         android:progress="0"
-        android:progressTint="@color/brand_green"
-        android:indeterminateTint="@color/brand_green" />
+        android:progressTint="?attr/colorControlActivated"
+        android:indeterminateTint="?attr/colorControlActivated" />
 
     <Button
         android:id="@+id/copyProgressCancel"

@@ -9,7 +9,7 @@
       android:translateX="3.6"
       android:translateY="3.6">
       <path
-          android:fillColor="@color/brand_green"
+          android:fillColor="@color/brand_primary"
           android:pathData="M0,0h24v24h-24z" />
       <path
           android:fillColor="@color/white"

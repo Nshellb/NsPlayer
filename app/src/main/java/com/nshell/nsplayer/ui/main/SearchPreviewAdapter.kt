@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.nshell.nsplayer.R
+import com.nshell.nsplayer.ui.base.themeColor
 import android.net.Uri
 
 class SearchPreviewAdapter(
@@ -46,7 +47,9 @@ class SearchPreviewAdapter(
             Glide.with(holder.thumbnail).clear(holder.thumbnail)
             holder.thumbnail.setImageResource(R.drawable.ic_video)
             holder.thumbnail.scaleType = ImageView.ScaleType.CENTER_INSIDE
-            holder.thumbnail.setColorFilter(holder.itemView.context.getColor(R.color.brand_green))
+            holder.thumbnail.setColorFilter(
+                holder.itemView.context.themeColor(com.google.android.material.R.attr.colorPrimary)
+            )
         }
         holder.itemView.setOnClickListener { onItemClick(item) }
     }

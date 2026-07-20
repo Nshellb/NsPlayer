@@ -3,7 +3,7 @@
     android:id="@+id/commonTopBar"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/brand_green"
+    android:background="?attr/colorPrimary"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:padding="12dp">
@@ -15,7 +15,7 @@
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/back"
         android:src="@drawable/ic_back"
-        android:tint="@color/white" />
+        android:tint="?attr/colorOnPrimary" />
 
     <TextView
         android:id="@+id/commonTitleText"
@@ -24,5 +24,5 @@
         android:layout_weight="1"
         android:paddingStart="12dp"
         android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
-        android:textColor="@color/white" />
+        android:textColor="?attr/colorOnPrimary" />
 </LinearLayout>

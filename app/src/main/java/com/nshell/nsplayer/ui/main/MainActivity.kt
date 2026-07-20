@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import com.nshell.nsplayer.ui.base.BaseActivity
+import com.nshell.nsplayer.ui.base.themeColor
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
@@ -153,7 +154,9 @@ class MainActivity : BaseActivity() {
 
         list = findViewById(R.id.list)
         refreshLayout = findViewById(R.id.refreshLayout)
-        refreshLayout.setColorSchemeResources(R.color.brand_green)
+        refreshLayout.setColorSchemeColors(
+            themeColor(com.google.android.material.R.attr.colorPrimary)
+        )
         list.isVerticalScrollBarEnabled = true
         list.isScrollbarFadingEnabled = true
         list.scrollBarDefaultDelayBeforeFade = 600

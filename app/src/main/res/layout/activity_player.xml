@@ -114,8 +114,8 @@
                 android:id="@+id/seekBar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:progressTint="@color/brand_green"
-                android:thumbTint="@color/brand_green"
+                android:progressTint="?attr/colorControlActivated"
+                android:thumbTint="?attr/colorControlActivated"
                 android:progressBackgroundTint="@android:color/darker_gray" />
 
             <LinearLayout
@@ -222,7 +222,7 @@
         android:layout_height="48dp"
         android:layout_gravity="center"
         android:indeterminate="true"
-        android:indeterminateTint="@color/brand_green"
+        android:indeterminateTint="?attr/colorControlActivated"
         android:indeterminateTintMode="src_in"
         android:visibility="gone" />
 

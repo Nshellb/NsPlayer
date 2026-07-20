@@ -7,19 +7,17 @@
 
     <LinearLayout
         android:id="@+id/settingsHeader"
+        style="@style/Widget.NsPlayer.PopupHeader"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/brand_green"
-        android:padding="12dp">
+        >
 
         <TextView
             android:id="@+id/settingsTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/settings_title"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
-            android:textColor="@color/white"
-            android:textStyle="bold"
+            android:textAppearance="@style/TextAppearance.NsPlayer.PopupHeader"
             android:textSize="@dimen/settings_popup_title_size" />
     </LinearLayout>
 
@@ -75,12 +73,10 @@
 
     <View
         android:id="@+id/settingsModeDivider"
+        style="@style/Widget.NsPlayer.Divider"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
         android:layout_marginTop="10dp"
-        android:layout_marginBottom="6dp"
-        android:background="?android:attr/textColorSecondary"
-        android:alpha="0.12" />
+        android:layout_marginBottom="6dp" />
 
     <TextView
         android:id="@+id/displayTitle"
@@ -216,12 +212,10 @@
 
     <View
         android:id="@+id/settingsDisplayDivider"
+        style="@style/Widget.NsPlayer.Divider"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
         android:layout_marginTop="10dp"
-        android:layout_marginBottom="6dp"
-        android:background="?android:attr/textColorSecondary"
-        android:alpha="0.12" />
+        android:layout_marginBottom="6dp" />
 
     <TextView
         android:id="@+id/sortTitle"
@@ -298,12 +292,10 @@
 
     <View
         android:id="@+id/settingsSortDivider"
+        style="@style/Widget.NsPlayer.Divider"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
         android:layout_marginTop="10dp"
-        android:layout_marginBottom="6dp"
-        android:background="?android:attr/textColorSecondary"
-        android:alpha="0.12" />
+        android:layout_marginBottom="6dp" />
 
     <LinearLayout
         android:id="@+id/settingsAdvancedRow"
@@ -344,19 +336,17 @@
 
         <Button
             android:id="@+id/settingsCancel"
+            style="@style/Widget.NsPlayer.PrimaryButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:backgroundTint="@color/brand_green"
-            android:textColor="@color/white"
             android:text="@string/cancel" />
 
         <Button
             android:id="@+id/settingsConfirm"
+            style="@style/Widget.NsPlayer.PrimaryButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:backgroundTint="@color/brand_green"
-            android:textColor="@color/white"
             android:text="@string/confirm" />
     </LinearLayout>
     </LinearLayout>

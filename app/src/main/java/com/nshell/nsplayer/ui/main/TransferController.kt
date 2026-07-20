@@ -16,6 +16,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.IntentSenderRequest
 import androidx.appcompat.app.AlertDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -96,7 +97,7 @@ class TransferController(
             Toast.makeText(activity, activity.getString(R.string.delete_no_selection), Toast.LENGTH_SHORT).show()
             return
         }
-        AlertDialog.Builder(activity, R.style.ThemeOverlay_NsPlayer_Dialog)
+        MaterialAlertDialogBuilder(activity)
             .setTitle(activity.getString(R.string.delete_title))
             .setMessage(activity.getString(R.string.delete_message, videos.size))
             .setPositiveButton(R.string.delete_confirm) { _, _ ->
@@ -787,7 +788,7 @@ class TransferController(
         )
         percentText.text = activity.getString(R.string.copy_progress_percent, 0)
         fileText.text = activity.getString(R.string.copy_progress_file, "-")
-        val dialog = BottomSheetDialog(activity, R.style.ThemeOverlay_NsPlayer_BottomSheetDialog)
+        val dialog = BottomSheetDialog(activity)
         dialog.setContentView(content)
         dialog.setCancelable(false)
         dialog.show()
@@ -970,7 +971,7 @@ class TransferController(
         activity.runOnUiThread {
             val content = activity.layoutInflater.inflate(R.layout.dialog_conflict_resolution, null)
             val applyAllCheck = content.findViewById<android.widget.CheckBox>(R.id.applyToAllCheck)
-            AlertDialog.Builder(activity)
+            MaterialAlertDialogBuilder(activity)
                 .setTitle(activity.getString(R.string.conflict_title))
                 .setMessage(activity.getString(R.string.conflict_message, fileName))
                 .setView(content)

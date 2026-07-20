@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="surface_default">#FF111411</color>
+    <color name="surface_variant">#FF252925</color>
+    <color name="on_surface_default">#FFE1E4DF</color>
+    <color name="outline_default">#FF8D938A</color>
+    <color name="selection_overlay">#3366BB6A</color>
+</resources>

@@ -35,5 +35,5 @@
         android:id="@+id/searchFolderCheckBox"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:buttonTint="@color/brand_green" />
+        android:buttonTint="?attr/colorControlActivated" />
 </LinearLayout>
