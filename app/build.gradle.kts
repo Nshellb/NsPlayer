@@ -11,8 +11,20 @@ val localProps = Properties().apply {
     }
 }
 
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
 fun prop(name: String): String? =
     (project.findProperty(name) as String?) ?: localProps.getProperty(name)
+
+fun signingProp(name: String): String? =
+    (project.findProperty(name) as String?) ?:
+        keystoreProps.getProperty(name) ?:
+        localProps.getProperty(name)
 
 fun escapeBuildConfig(value: String): String =
     value.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -20,6 +32,16 @@ fun escapeBuildConfig(value: String): String =
 val notionToken = prop("NOTION_TOKEN") ?: ""
 val notionVersion = prop("NOTION_VERSION") ?: ""
 val notionDataSourceId = prop("NOTION_DATA_SOURCE_ID") ?: ""
+val releaseStoreFile = signingProp("storeFile")?.takeIf { it.isNotBlank() }
+val releaseStorePassword = signingProp("storePassword")?.takeIf { it.isNotBlank() }
+val releaseKeyAlias = signingProp("keyAlias")?.takeIf { it.isNotBlank() }
+val releaseKeyPassword = signingProp("keyPassword")?.takeIf { it.isNotBlank() }
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.nshell.nsplayer"
@@ -40,6 +62,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("String", "NOTION_TOKEN", "\"${escapeBuildConfig(notionToken)}\"")
@@ -58,6 +91,9 @@ android {
                 "NOTION_DATA_SOURCE_ID",
                 "\"${escapeBuildConfig(notionDataSourceId)}\""
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
