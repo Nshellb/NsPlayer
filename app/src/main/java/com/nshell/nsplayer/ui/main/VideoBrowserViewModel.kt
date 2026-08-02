@@ -3,6 +3,7 @@ package com.nshell.nsplayer.ui.main
 import android.content.ContentResolver
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import com.nshell.nsplayer.NsPlayerApp
 import com.nshell.nsplayer.data.cache.VideoListCache
@@ -14,11 +15,13 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class VideoBrowserViewModel : ViewModel() {
+class VideoBrowserViewModel(
+    private val savedStateHandle: SavedStateHandle
+) : ViewModel() {
     private val items = MutableLiveData<List<DisplayItem>?>(null)
     private val loading = MutableLiveData(false)
     private val refreshing = MutableLiveData(false)
-    private val state = MutableLiveData(VideoBrowserState())
+    private val state = MutableLiveData(restoreNavigationState())
     private val repository: VideoRepository = MediaStoreVideoRepository()
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val cacheExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -35,12 +38,62 @@ class VideoBrowserViewModel : ViewModel() {
     fun getState(): LiveData<VideoBrowserState> = state
 
     fun setState(newState: VideoBrowserState) {
-        state.value = newState
+        val normalized = normalizeNavigationState(newState)
+        state.value = normalized
+        saveNavigationState(normalized)
     }
 
     fun updateState(update: (VideoBrowserState) -> VideoBrowserState) {
         val current = state.value ?: VideoBrowserState()
-        state.value = update(current)
+        val updated = normalizeNavigationState(update(current))
+        state.value = updated
+        saveNavigationState(updated)
+    }
+
+    fun hasSavedNavigationState(): Boolean =
+        savedStateHandle[KEY_NAVIGATION_SAVED] ?: false
+
+    private fun restoreNavigationState(): VideoBrowserState {
+        if (!hasSavedNavigationState()) {
+            return VideoBrowserState()
+        }
+        val mode = savedStateHandle.get<String>(KEY_MODE)
+            ?.let { value -> runCatching { VideoMode.valueOf(value) }.getOrNull() }
+            ?: VideoMode.FOLDERS
+        return normalizeNavigationState(
+            VideoBrowserState(
+                currentMode = mode,
+                inFolderVideos = savedStateHandle[KEY_IN_FOLDER] ?: false,
+                selectedBucketId = savedStateHandle[KEY_BUCKET_ID],
+                selectedBucketName = savedStateHandle[KEY_BUCKET_NAME],
+                hierarchyPath = savedStateHandle[KEY_HIERARCHY_PATH] ?: ""
+            )
+        )
+    }
+
+    private fun saveNavigationState(value: VideoBrowserState) {
+        savedStateHandle[KEY_NAVIGATION_SAVED] = true
+        savedStateHandle[KEY_MODE] = value.currentMode.name
+        savedStateHandle[KEY_IN_FOLDER] = value.inFolderVideos
+        savedStateHandle[KEY_BUCKET_ID] = value.selectedBucketId
+        savedStateHandle[KEY_BUCKET_NAME] = value.selectedBucketName
+        savedStateHandle[KEY_HIERARCHY_PATH] = value.hierarchyPath
+    }
+
+    private fun normalizeNavigationState(value: VideoBrowserState): VideoBrowserState {
+        val validFolder = value.currentMode == VideoMode.FOLDERS &&
+            value.inFolderVideos &&
+            !value.selectedBucketId.isNullOrEmpty()
+        return value.copy(
+            inFolderVideos = validFolder,
+            selectedBucketId = if (validFolder) value.selectedBucketId else null,
+            selectedBucketName = if (validFolder) value.selectedBucketName else null,
+            hierarchyPath = if (value.currentMode == VideoMode.HIERARCHY) {
+                value.hierarchyPath
+            } else {
+                ""
+            }
+        )
     }
 
     fun load(
@@ -304,5 +357,11 @@ class VideoBrowserViewModel : ViewModel() {
 
     companion object {
         private const val PREFETCH_LIMIT = 6
+        private const val KEY_NAVIGATION_SAVED = "browser_navigation_saved"
+        private const val KEY_MODE = "browser_mode"
+        private const val KEY_IN_FOLDER = "browser_in_folder"
+        private const val KEY_BUCKET_ID = "browser_bucket_id"
+        private const val KEY_BUCKET_NAME = "browser_bucket_name"
+        private const val KEY_HIERARCHY_PATH = "browser_hierarchy_path"
     }
 }

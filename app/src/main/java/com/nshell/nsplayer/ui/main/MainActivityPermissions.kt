@@ -152,7 +152,9 @@ internal fun MainActivity.applySettings(settings: SettingsState) {
     val searchChanged =
         current.searchFoldersUseAll != settings.searchFoldersUseAll ||
             current.searchFolders != settings.searchFolders
-    val shouldApplyInitialMode = !initialSettingsApplied && !restoredFromSavedState
+    val shouldApplyInitialMode = !initialSettingsApplied &&
+        !restoredFromSavedState &&
+        !viewModel.hasSavedNavigationState()
     adapter.setVisibleItems(settings.visibleItems)
     viewModel.updateState {
         it.copy(
