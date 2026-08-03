@@ -99,6 +99,8 @@
     <string name="translation_engine_locked_message">Engine selection is not available on this system.</string>
     <string name="translation_engine_unsupported_message">Translation is not supported on this system.</string>
     <string name="advanced_settings_inquiry">Feedback</string>
+    <string name="advanced_settings_privacy_policy">Privacy policy</string>
+    <string name="privacy_policy_open_failed">Unable to open the privacy policy.</string>
     <string name="advanced_settings_inquiry_title">Feedback</string>
     <string name="inquiry_subject">Subject</string>
     <string name="inquiry_subject_hint">Enter a subject.</string>

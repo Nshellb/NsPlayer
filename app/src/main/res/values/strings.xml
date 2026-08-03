@@ -99,6 +99,8 @@
     <string name="translation_engine_locked_message">현재 시스템에서는 엔진 선택이 불가능합니다.</string>
     <string name="translation_engine_unsupported_message">이 시스템에서는 번역 기능을 지원하지 않습니다.</string>
     <string name="advanced_settings_inquiry">문의 및 개선</string>
+    <string name="advanced_settings_privacy_policy">개인정보 처리방침</string>
+    <string name="privacy_policy_open_failed">개인정보 처리방침을 열 수 없습니다.</string>
     <string name="advanced_settings_inquiry_title">문의 및 개선</string>
     <string name="inquiry_subject">문의 제목</string>
     <string name="inquiry_subject_hint">제목을 입력해 주세요.</string>

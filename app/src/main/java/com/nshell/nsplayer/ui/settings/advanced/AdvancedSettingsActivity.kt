@@ -36,6 +36,8 @@ import com.nshell.nsplayer.ui.settings.searchfolders.SearchFoldersActivity
 class AdvancedSettingsActivity : BaseActivity() {
     private companion object {
         private const val SUPPORT_EMAIL = "nshellb.dev@gmail.com"
+        private const val PRIVACY_POLICY_URL =
+            "https://github.com/Nshellb/NsPlayer/blob/no-ads/PRIVACY_POLICY.md"
     }
 
     private data class TranslationEngineAvailability(
@@ -213,6 +215,11 @@ class AdvancedSettingsActivity : BaseActivity() {
         val inquiryTitle = inquiryRow.findViewById<TextView>(R.id.settingsRowTitle)
         inquiryTitle.text = getString(R.string.advanced_settings_inquiry)
         inquiryRow.setOnClickListener { showInquiryDialog() }
+
+        val privacyPolicyRow = findViewById<View>(R.id.advancedPrivacyPolicyRow)
+        val privacyPolicyTitle = privacyPolicyRow.findViewById<TextView>(R.id.settingsRowTitle)
+        privacyPolicyTitle.text = getString(R.string.advanced_settings_privacy_policy)
+        privacyPolicyRow.setOnClickListener { openPrivacyPolicy() }
 
         val visibleItemIds = listOf(
             R.id.visibleItemThumbnail,
@@ -500,6 +507,15 @@ class AdvancedSettingsActivity : BaseActivity() {
         dialog.show()
     }
 
+    private fun openPrivacyPolicy() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_POLICY_URL))
+        try {
+            startActivity(intent)
+        } catch (_: RuntimeException) {
+            Toast.makeText(this, R.string.privacy_policy_open_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun submitInquiry(
         title: String,
         message: String,
@@ -513,14 +529,12 @@ class AdvancedSettingsActivity : BaseActivity() {
                 "&body=${Uri.encode(body)}"
         )
         val intent = Intent(Intent.ACTION_SENDTO, mailUri)
-        if (intent.resolveActivity(packageManager) != null) {
-            try {
-                startActivity(intent)
-                inquiryDialog.dismiss()
-                return
-            } catch (_: RuntimeException) {
-                // Fall through to the copy-address dialog.
-            }
+        try {
+            startActivity(intent)
+            inquiryDialog.dismiss()
+            return
+        } catch (_: RuntimeException) {
+            // Fall through to the copy-address dialog.
         }
         showInquiryEmailFallbackDialog(inquiryDialog)
     }

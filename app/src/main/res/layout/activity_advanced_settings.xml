@@ -9,12 +9,18 @@
         android:id="@+id/advancedTopBarInclude"
         layout="@layout/include_top_bar" />
 
-    <LinearLayout
-        android:id="@+id/advancedSettingsContainer"
+    <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:id="@+id/advancedSettingsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
 
         <LinearLayout
             android:id="@+id/advancedLanguageRow"
@@ -176,5 +182,17 @@
         <include
             android:id="@+id/advancedInquiryRow"
             layout="@layout/include_settings_row_chevron" />
-    </LinearLayout>
+
+        <View
+            android:id="@+id/advancedDividerInquiry"
+            style="@style/Widget.NsPlayer.Divider"
+            android:layout_width="match_parent"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp" />
+
+        <include
+            android:id="@+id/advancedPrivacyPolicyRow"
+            layout="@layout/include_settings_row_chevron" />
+        </LinearLayout>
+    </ScrollView>
 </LinearLayout>
