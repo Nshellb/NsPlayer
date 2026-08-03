@@ -1,5 +1,8 @@
 package com.nshell.nsplayer.ui.settings.advanced
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -491,14 +494,18 @@ class AdvancedSettingsActivity : BaseActivity() {
                     ).show()
                     return@setOnClickListener
                 }
-                dialog.dismiss()
-                submitInquiry(title, message, buildModelCode())
+                submitInquiry(title, message, buildModelCode(), dialog)
             }
         }
         dialog.show()
     }
 
-    private fun submitInquiry(title: String, message: String, modelCode: String) {
+    private fun submitInquiry(
+        title: String,
+        message: String,
+        modelCode: String,
+        inquiryDialog: AlertDialog
+    ) {
         val body = "$message\n\nDevice: $modelCode"
         val mailUri = Uri.parse(
             "mailto:$SUPPORT_EMAIL" +
@@ -507,11 +514,28 @@ class AdvancedSettingsActivity : BaseActivity() {
         )
         val intent = Intent(Intent.ACTION_SENDTO, mailUri)
         if (intent.resolveActivity(packageManager) != null) {
-            startActivity(intent)
-        } else {
-            Toast.makeText(this, getString(R.string.inquiry_email_app_not_found), Toast.LENGTH_SHORT)
-                .show()
+            try {
+                startActivity(intent)
+                inquiryDialog.dismiss()
+                return
+            } catch (_: RuntimeException) {
+                // Fall through to the copy-address dialog.
+            }
         }
+        showInquiryEmailFallbackDialog(inquiryDialog)
+    }
+
+    private fun showInquiryEmailFallbackDialog(inquiryDialog: AlertDialog) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.inquiry_email_fallback_title)
+            .setMessage(getString(R.string.inquiry_email_fallback_message, SUPPORT_EMAIL))
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Support email", SUPPORT_EMAIL))
+                Toast.makeText(this, R.string.inquiry_email_copied, Toast.LENGTH_SHORT).show()
+                inquiryDialog.dismiss()
+            }
+            .show()
     }
 
     private fun buildModelCode(): String {

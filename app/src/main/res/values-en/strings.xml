@@ -108,6 +108,9 @@
     <string name="inquiry_send_success">Your inquiry has been sent.</string>
     <string name="inquiry_send_failed">Failed to send your inquiry.</string>
     <string name="inquiry_email_app_not_found">No email app was found.</string>
+    <string name="inquiry_email_fallback_title">Unable to open an email app</string>
+    <string name="inquiry_email_fallback_message">Tap OK to copy the support email address.\n\n%1$s</string>
+    <string name="inquiry_email_copied">Support email address copied.</string>
     <string name="inquiry_error_empty_title">Please enter a subject.</string>
     <string name="inquiry_error_empty_content">Please enter a message.</string>
     <string name="advanced_visible_thumbnail">Thumbnail</string>
