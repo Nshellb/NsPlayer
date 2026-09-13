@@ -4,6 +4,7 @@ import android.app.PictureInPictureParams
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -126,6 +127,7 @@ class PlayerActivity : BaseActivity() {
     private var preferredSubtitleLanguage: String? = null
     private var preferredSubtitleEncoding = ENCODING_UTF8
     private var selectedSubtitle: SubtitleSource? = null
+    private var subtitleSelectionMode = SubtitleSelectionMode.AUTO
     private var subtitleCandidates: List<SubtitleSource> = emptyList()
     private var subtitleCacheFile: File? = null
     private var subtitleDialogSelectValue: TextView? = null
@@ -158,6 +160,7 @@ class PlayerActivity : BaseActivity() {
             val mimeType = guessSubtitleMimeType(name)
             val extension = name.substringAfterLast('.', "")
             selectedSubtitle = SubtitleSource(uri, name, mimeType, extension)
+            subtitleSelectionMode = SubtitleSelectionMode.MANUAL
             subtitleEnabled = true
             persistSubtitleEnabled()
             subtitleDialogSelectValue?.text = selectedSubtitle?.label ?: getString(R.string.subtitle_none)
@@ -438,6 +441,7 @@ class PlayerActivity : BaseActivity() {
                     loadSubtitlePreferences()
                     autoSelectSubtitleIfAvailable()
                     applySubtitleEnabled(subtitleEnabled)
+                    attachResolvedSubtitleToCurrentItem()
                     if (!subtitleCandidatesByUri.containsKey(videoUri)) {
                         requestSubtitleCandidates(videoUri, index, subtitleResolveGeneration)
                     }
@@ -999,12 +1003,20 @@ class PlayerActivity : BaseActivity() {
         enableSwitch.setOnCheckedChangeListener { _, isChecked ->
             subtitleEnabled = isChecked
             persistSubtitleEnabled()
-            if (isChecked && selectedSubtitle == null && subtitleCandidates.isNotEmpty()) {
-                selectedSubtitle = subtitleCandidates.first()
+            if (isChecked && selectedSubtitle == null) {
+                subtitleSelectionMode = SubtitleSelectionMode.AUTO
                 persistSubtitleSelection(selectedSubtitle)
-                selectValue.text = selectedSubtitle?.label ?: getString(R.string.subtitle_none)
-                applySubtitleSelection(selectedSubtitle)
-                return@setOnCheckedChangeListener
+                if (subtitleCandidates.isNotEmpty()) {
+                    selectedSubtitle = preferredSubtitleCandidate(subtitleCandidates)
+                    persistSubtitleSelection(selectedSubtitle)
+                    selectValue.text =
+                        selectedSubtitle?.label ?: getString(R.string.subtitle_none)
+                    applySubtitleSelection(selectedSubtitle)
+                    return@setOnCheckedChangeListener
+                }
+            } else if (!isChecked && selectedSubtitle == null) {
+                subtitleSelectionMode = SubtitleSelectionMode.NONE
+                persistSubtitleSelection(null)
             }
             applySubtitleEnabled(subtitleEnabled)
         }
@@ -1037,7 +1049,9 @@ class PlayerActivity : BaseActivity() {
     ) {
         val options = mutableListOf<SubtitleChoice>()
         options.add(SubtitleChoice.None)
-        subtitleCandidates.forEach { options.add(SubtitleChoice.Source(it)) }
+        orderedSubtitleCandidates(subtitleCandidates).forEach {
+            options.add(SubtitleChoice.Source(it))
+        }
         val current = selectedSubtitle
         if (current != null && options.none { it is SubtitleChoice.Source && it.source.uri == current.uri }) {
             options.add(SubtitleChoice.Source(current))
@@ -1058,6 +1072,7 @@ class PlayerActivity : BaseActivity() {
                 when (val choice = options[which]) {
                     SubtitleChoice.None -> {
                         selectedSubtitle = null
+                        subtitleSelectionMode = SubtitleSelectionMode.NONE
                         subtitleEnabled = false
                         persistSubtitleEnabled()
                         persistSubtitleSelection(null)
@@ -1070,6 +1085,7 @@ class PlayerActivity : BaseActivity() {
                     }
                     is SubtitleChoice.Source -> {
                         selectedSubtitle = choice.source
+                        subtitleSelectionMode = SubtitleSelectionMode.MANUAL
                         subtitleEnabled = true
                         persistSubtitleEnabled()
                         persistSubtitleSelection(selectedSubtitle)
@@ -1099,9 +1115,12 @@ class PlayerActivity : BaseActivity() {
                     .putString(KEY_SUBTITLE_LANGUAGE, preferredSubtitleLanguage)
                     .apply()
                 valueView.text = options[which].label
-                if (selectedSubtitle != null) {
-                    applySubtitleSelection(selectedSubtitle)
+                if (subtitleSelectionMode == SubtitleSelectionMode.AUTO) {
+                    selectedSubtitle = preferredSubtitleCandidate(subtitleCandidates)
                 }
+                subtitleDialogSelectValue?.text =
+                    selectedSubtitle?.label ?: getString(R.string.subtitle_none)
+                applySubtitleSelection(selectedSubtitle)
                 dialog.dismiss()
             }
             .show()
@@ -1133,16 +1152,13 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun applySubtitleSelection(source: SubtitleSource?) {
-        if (source == null) {
-            selectedSubtitle = null
-            persistSubtitleSelection(null)
-            applySubtitleEnabled(subtitleEnabled)
+        selectedSubtitle = source
+        persistSubtitleSelection(source)
+        val activePlayer = player
+        if (activePlayer == null) {
             updateSubtitleButtonState()
             return
         }
-        selectedSubtitle = source
-        persistSubtitleSelection(source)
-        val activePlayer = player ?: return
         val wasPlaying = activePlayer.isPlaying
         val position = activePlayer.currentPosition
         val index = activePlayer.currentMediaItemIndex.coerceAtLeast(0)
@@ -1161,7 +1177,7 @@ class PlayerActivity : BaseActivity() {
             val subtitle = when {
                 entry.uri == videoUri && selectedSubtitle != null -> selectedSubtitle
                 subtitleEnabled && preferredSubtitleEncoding.equals(ENCODING_UTF8, true) ->
-                    subtitleCandidatesByUri[entry.uri]?.firstOrNull()
+                    preferredSubtitleCandidate(subtitleCandidatesByUri[entry.uri].orEmpty())
                 else -> null
             }
             buildMediaItem(entry, subtitle)
@@ -1192,8 +1208,9 @@ class PlayerActivity : BaseActivity() {
             .setMimeType(source.mimeType)
             .setLabel(source.label)
             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-        if (!preferredSubtitleLanguage.isNullOrEmpty()) {
-            builder.setLanguage(preferredSubtitleLanguage)
+        val detectedLanguage = source.nameMatch?.languageTag
+        if (!detectedLanguage.isNullOrEmpty()) {
+            builder.setLanguage(detectedLanguage)
         }
         return builder.build()
     }
@@ -1547,26 +1564,112 @@ class PlayerActivity : BaseActivity() {
             subtitlePreferences.getString(KEY_SUBTITLE_ENCODING, ENCODING_UTF8) ?: ENCODING_UTF8
         val savedVideo = subtitlePreferences.getString(KEY_SUBTITLE_VIDEO_URI, null)
         if (savedVideo != null && savedVideo == videoUri.toString()) {
+            val storedMode = subtitlePreferences
+                .getString(KEY_SUBTITLE_SELECTION_MODE, null)
+                ?.let { stored ->
+                    runCatching { SubtitleSelectionMode.valueOf(stored) }.getOrNull()
+                }
+            if (storedMode == SubtitleSelectionMode.NONE) {
+                selectedSubtitle = null
+                subtitleSelectionMode = SubtitleSelectionMode.NONE
+                return
+            }
             val uriString = subtitlePreferences.getString(KEY_SUBTITLE_URI, null)
             val label = subtitlePreferences.getString(KEY_SUBTITLE_LABEL, null)
             val mime = subtitlePreferences.getString(KEY_SUBTITLE_MIME, null)
             val ext = subtitlePreferences.getString(KEY_SUBTITLE_EXT, "") ?: ""
             if (!uriString.isNullOrEmpty() && !label.isNullOrEmpty() && !mime.isNullOrEmpty()) {
-                selectedSubtitle = SubtitleSource(Uri.parse(uriString), label, mime, ext)
+                subtitleSelectionMode = storedMode ?: SubtitleSelectionMode.LEGACY
+                selectedSubtitle = if (subtitleSelectionMode == SubtitleSelectionMode.AUTO) {
+                    null
+                } else {
+                    SubtitleSource(Uri.parse(uriString), label, mime, ext)
+                }
+                return
             }
-        } else {
-            selectedSubtitle = null
         }
+        selectedSubtitle = null
+        subtitleSelectionMode = SubtitleSelectionMode.AUTO
     }
 
     private fun autoSelectSubtitleIfAvailable() {
-        if (selectedSubtitle != null || subtitleCandidates.isEmpty()) {
+        reconcileSavedSubtitleSelection(subtitleCandidates)
+        if (subtitleSelectionMode != SubtitleSelectionMode.AUTO || subtitleCandidates.isEmpty()) {
             return
         }
-        selectedSubtitle = subtitleCandidates.first()
-        subtitleEnabled = true
+        selectedSubtitle = preferredSubtitleCandidate(subtitleCandidates) ?: return
+        subtitleSelectionMode = SubtitleSelectionMode.AUTO
+        if (!subtitlePreferences.contains(KEY_SUBTITLE_ENABLED)) {
+            subtitleEnabled = true
+        }
         persistSubtitleSelection(selectedSubtitle)
         persistSubtitleEnabled()
+    }
+
+    private fun reconcileSavedSubtitleSelection(candidates: List<SubtitleSource>) {
+        val selected = selectedSubtitle
+        when (subtitleSelectionMode) {
+            SubtitleSelectionMode.AUTO -> selectedSubtitle = null
+            SubtitleSelectionMode.MANUAL -> {
+                val discoveredSource = selected?.let { saved ->
+                    candidates.firstOrNull { candidate -> candidate.uri == saved.uri }
+                }
+                if (discoveredSource != null) {
+                    selectedSubtitle = discoveredSource
+                }
+            }
+            SubtitleSelectionMode.NONE -> Unit
+            SubtitleSelectionMode.LEGACY -> {
+                if (candidates.isEmpty()) {
+                    return
+                }
+                val referenceMatch = candidates.firstOrNull()?.nameMatch
+                val wasAutomaticallyDiscoverable = selected?.let { saved ->
+                    candidates.any { candidate -> candidate.uri == saved.uri } ||
+                        referenceMatch?.let { match ->
+                            SubtitleCandidatePolicy.matchesSameVideo(match, saved.label)
+                        } == true
+                } == true
+                subtitleSelectionMode = if (wasAutomaticallyDiscoverable) {
+                    selectedSubtitle = null
+                    SubtitleSelectionMode.AUTO
+                } else {
+                    SubtitleSelectionMode.MANUAL
+                }
+                persistSubtitleSelection(selectedSubtitle)
+            }
+        }
+    }
+
+    private fun preferredSubtitleCandidate(candidates: List<SubtitleSource>): SubtitleSource? {
+        return SubtitleCandidatePolicy.preferredCandidate(
+            candidates = candidates,
+            preferredLanguages = resolvePreferredSubtitleLanguages(),
+            matchOf = { source -> requireNotNull(source.nameMatch) }
+        )
+    }
+
+    private fun orderedSubtitleCandidates(candidates: List<SubtitleSource>): List<SubtitleSource> {
+        return SubtitleCandidatePolicy.orderedCandidates(
+            candidates = candidates,
+            preferredLanguages = resolvePreferredSubtitleLanguages(),
+            matchOf = { source -> requireNotNull(source.nameMatch) }
+        )
+    }
+
+    private fun resolvePreferredSubtitleLanguages(): List<String> {
+        val localeList = resources.configuration.locales
+        val effectiveLanguageTags = mutableListOf<String>()
+        for (index in 0 until localeList.size()) {
+            effectiveLanguageTags.add(localeList[index].toLanguageTag())
+        }
+        if (effectiveLanguageTags.isEmpty()) {
+            effectiveLanguageTags.add(Locale.getDefault().toLanguageTag())
+        }
+        return SubtitleCandidatePolicy.resolvePreferredLanguages(
+            selectedLanguage = preferredSubtitleLanguage,
+            effectiveLanguageTags = effectiveLanguageTags
+        )
     }
 
     private fun requestSubtitleCandidatesForPlaylist() {
@@ -1604,10 +1707,17 @@ class PlayerActivity : BaseActivity() {
                     subtitleCandidates = candidates
                     loadSubtitlePreferences()
                     autoSelectSubtitleIfAvailable()
+                    subtitleDialogSelectValue?.text =
+                        selectedSubtitle?.label ?: getString(R.string.subtitle_none)
+                    subtitleDialogEnableSwitch?.isChecked = subtitleEnabled
                     updateSubtitleButtonState()
                     attachResolvedSubtitleToCurrentItem()
                 } else {
-                    attachResolvedSubtitleToQueuedItem(index, entry, candidates.firstOrNull())
+                    attachResolvedSubtitleToQueuedItem(
+                        index,
+                        entry,
+                        preferredSubtitleCandidate(candidates)
+                    )
                 }
             }
         }
@@ -1619,7 +1729,10 @@ class PlayerActivity : BaseActivity() {
         val currentItem = activePlayer.currentMediaItem ?: return
         val alreadyAttached = currentItem.localConfiguration
             ?.subtitleConfigurations
-            ?.any { it.uri == source.uri } == true
+            ?.any { configuration ->
+                configuration.uri == source.uri &&
+                    configuration.language == source.nameMatch?.languageTag
+            } == true
         if (!alreadyAttached) {
             applySubtitleSelection(source)
         }
@@ -1650,20 +1763,45 @@ class PlayerActivity : BaseActivity() {
 
     private fun persistSubtitleSelection(source: SubtitleSource?) {
         val editor = subtitlePreferences.edit()
-        if (source == null) {
-            editor.remove(KEY_SUBTITLE_VIDEO_URI)
-            editor.remove(KEY_SUBTITLE_URI)
-            editor.remove(KEY_SUBTITLE_LABEL)
-            editor.remove(KEY_SUBTITLE_MIME)
-            editor.remove(KEY_SUBTITLE_EXT)
-        } else {
-            editor.putString(KEY_SUBTITLE_VIDEO_URI, videoUri.toString())
-            editor.putString(KEY_SUBTITLE_URI, source.uri.toString())
-            editor.putString(KEY_SUBTITLE_LABEL, source.label)
-            editor.putString(KEY_SUBTITLE_MIME, source.mimeType)
-            editor.putString(KEY_SUBTITLE_EXT, source.extension)
+        when (subtitleSelectionMode) {
+            SubtitleSelectionMode.AUTO -> {
+                val savedVideo = subtitlePreferences.getString(KEY_SUBTITLE_VIDEO_URI, null)
+                if (savedVideo == videoUri.toString()) {
+                    clearPersistedSubtitleSelection(editor)
+                }
+            }
+            SubtitleSelectionMode.MANUAL -> {
+                if (source == null) {
+                    clearPersistedSubtitleSelection(editor)
+                } else {
+                    editor.putString(KEY_SUBTITLE_SELECTION_MODE, SubtitleSelectionMode.MANUAL.name)
+                    editor.putString(KEY_SUBTITLE_VIDEO_URI, videoUri.toString())
+                    editor.putString(KEY_SUBTITLE_URI, source.uri.toString())
+                    editor.putString(KEY_SUBTITLE_LABEL, source.label)
+                    editor.putString(KEY_SUBTITLE_MIME, source.mimeType)
+                    editor.putString(KEY_SUBTITLE_EXT, source.extension)
+                }
+            }
+            SubtitleSelectionMode.NONE -> {
+                editor.putString(KEY_SUBTITLE_SELECTION_MODE, SubtitleSelectionMode.NONE.name)
+                editor.putString(KEY_SUBTITLE_VIDEO_URI, videoUri.toString())
+                editor.remove(KEY_SUBTITLE_URI)
+                editor.remove(KEY_SUBTITLE_LABEL)
+                editor.remove(KEY_SUBTITLE_MIME)
+                editor.remove(KEY_SUBTITLE_EXT)
+            }
+            SubtitleSelectionMode.LEGACY -> return
         }
         editor.apply()
+    }
+
+    private fun clearPersistedSubtitleSelection(editor: SharedPreferences.Editor) {
+        editor.remove(KEY_SUBTITLE_SELECTION_MODE)
+        editor.remove(KEY_SUBTITLE_VIDEO_URI)
+        editor.remove(KEY_SUBTITLE_URI)
+        editor.remove(KEY_SUBTITLE_LABEL)
+        editor.remove(KEY_SUBTITLE_MIME)
+        editor.remove(KEY_SUBTITLE_EXT)
     }
 
     private fun loadSubtitleCandidates(uri: Uri): List<SubtitleSource> {
@@ -1673,19 +1811,13 @@ class PlayerActivity : BaseActivity() {
         if (relativePath.isNullOrEmpty() || displayName.isNullOrEmpty()) {
             return emptyList()
         }
-        val videoBase = displayName.substringBeforeLast('.', displayName).lowercase(Locale.US)
-        if (videoBase.isEmpty()) {
-            return emptyList()
-        }
-        val extensions = setOf("srt", "vtt", "ass", "ssa", "sub")
         val volume = meta.volumeName ?: MediaStore.VOLUME_EXTERNAL_PRIMARY
         val filesUri = MediaStore.Files.getContentUri(volume)
         val projection = arrayOf(
             MediaStore.Files.FileColumns._ID,
             MediaStore.Files.FileColumns.DISPLAY_NAME
         )
-        val exactMatches = mutableListOf<SubtitleSource>()
-        val taggedMatches = mutableListOf<SubtitleSource>()
+        val candidates = mutableListOf<SubtitleSource>()
         contentResolver.query(
             filesUri,
             projection,
@@ -1697,32 +1829,15 @@ class PlayerActivity : BaseActivity() {
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
             while (cursor.moveToNext()) {
                 val name = cursor.getString(nameCol) ?: continue
-                val lowerName = name.lowercase(Locale.US)
-                val dot = lowerName.lastIndexOf('.')
-                if (dot <= 0 || dot == lowerName.length - 1) {
-                    continue
-                }
-                val ext = lowerName.substring(dot + 1)
-                if (!extensions.contains(ext)) {
-                    continue
-                }
-                val subtitleBase = lowerName.substring(0, dot)
-                if (subtitleBase != videoBase && !subtitleBase.startsWith("$videoBase.")) {
-                    continue
-                }
+                val nameMatch = SubtitleCandidatePolicy.match(displayName, name) ?: continue
                 val id = cursor.getLong(idCol)
                 val fileUri = ContentUris.withAppendedId(filesUri, id)
                 val mime = guessSubtitleMimeType(name)
                 val extension = name.substringAfterLast('.', "")
-                val source = SubtitleSource(fileUri, name, mime, extension)
-                if (subtitleBase == videoBase) {
-                    exactMatches.add(source)
-                } else {
-                    taggedMatches.add(source)
-                }
+                candidates.add(SubtitleSource(fileUri, name, mime, extension, nameMatch))
             }
         }
-        return exactMatches + taggedMatches
+        return candidates
     }
 
     private fun queryVideoInfo(uri: Uri): VideoInfo? {
@@ -1828,7 +1943,8 @@ class PlayerActivity : BaseActivity() {
         val uri: Uri,
         val label: String,
         val mimeType: String,
-        val extension: String
+        val extension: String,
+        val nameMatch: SubtitleNameMatch? = null
     )
 
     private data class VideoInfo(
@@ -1846,6 +1962,13 @@ class PlayerActivity : BaseActivity() {
     private data class SubtitleLanguage(val code: String?, val label: String)
 
     private data class SubtitleEncoding(val code: String, val label: String)
+
+    private enum class SubtitleSelectionMode {
+        AUTO,
+        MANUAL,
+        NONE,
+        LEGACY
+    }
 
     private enum class SwipeMode {
         NONE,
@@ -1911,6 +2034,7 @@ class PlayerActivity : BaseActivity() {
         private const val KEY_SUBTITLE_LABEL = "subtitle_label"
         private const val KEY_SUBTITLE_MIME = "subtitle_mime"
         private const val KEY_SUBTITLE_EXT = "subtitle_ext"
+        private const val KEY_SUBTITLE_SELECTION_MODE = "subtitle_selection_mode"
         private const val KEY_PLAYBACK_SPEED = "playback_speed"
         private const val KEY_REPEAT_MODE = "playback_repeat_mode"
         private const val KEY_SHUFFLE_ENABLED = "playback_shuffle_enabled"
