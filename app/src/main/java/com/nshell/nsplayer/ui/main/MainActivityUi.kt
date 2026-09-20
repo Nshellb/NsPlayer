@@ -103,21 +103,6 @@ internal fun MainActivity.getHierarchyTitle(): String {
     }
 }
 
-internal fun MainActivity.getParentPath(path: String): String {
-    if (path.isEmpty()) {
-        return ""
-    }
-    var trimmed = path
-    if (trimmed.endsWith("/")) {
-        trimmed = trimmed.substring(0, trimmed.length - 1)
-    }
-    val lastSlash = trimmed.lastIndexOf('/')
-    if (lastSlash < 0) {
-        return ""
-    }
-    return trimmed.substring(0, lastSlash + 1)
-}
-
 internal fun MainActivity.updateModeSelectionUI(
     folders: TextView,
     hierarchy: TextView,

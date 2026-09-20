@@ -118,7 +118,7 @@ internal fun MainActivity.submitSearchQuery(sourceQuery: String? = null) {
     committedSearchQuery = query
     isShowingSearchResults = true
     val requestId = searchRequestCounter.incrementAndGet()
-    val current = viewModel.getState().value ?: browserState
+    val current = browserState
 
     searchExecutor.execute {
         val results = searchRepository.searchVideos(
@@ -183,7 +183,7 @@ private fun MainActivity.requestSearchPreview(query: String) {
         return
     }
     val requestId = searchRequestCounter.incrementAndGet()
-    val current = viewModel.getState().value ?: browserState
+    val current = browserState
 
     searchExecutor.execute {
         val previewItems = searchRepository.searchVideos(
@@ -232,18 +232,13 @@ internal fun MainActivity.hidePreviewList() {
 
 internal fun MainActivity.restoreBrowseAfterSearch() {
     val browseItems = latestBrowseItems
-    if (browseItems == null) {
-        loadIfPermitted(useCache = true)
-        return
-    }
     if (!isSearchMode) {
         applyVideoDisplayMode()
     }
-    adapter.submit(browseItems) {
-        restoreTransientUiStateIfNeeded()
+    renderItems(browseItems)
+    if (browseItems == null) {
+        loadIfPermitted(useCache = true)
     }
-    emptyText.text = getString(R.string.empty_state)
-    emptyText.visibility = if (browseItems.isEmpty()) View.VISIBLE else View.GONE
 }
 
 private fun MainActivity.setSearchInputSilently(text: String) {

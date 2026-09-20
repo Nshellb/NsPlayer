@@ -3,6 +3,9 @@ package com.nshell.nsplayer.ui.main
 import com.nshell.nsplayer.ui.player.PlayerActivity
 
 internal fun MainActivity.onItemSelected(item: DisplayItem) {
+    if (item !in adapter.currentList) {
+        return
+    }
     when (item.type) {
         DisplayItem.Type.FOLDER -> {
             viewModel.updateState {
@@ -33,7 +36,7 @@ internal fun MainActivity.onItemSelected(item: DisplayItem) {
             val intent = PlayerActivity.createLaunchIntent(this)
             intent.putExtra(PlayerActivity.EXTRA_URI, uri)
             intent.putExtra(PlayerActivity.EXTRA_TITLE, item.title)
-            startActivity(intent)
+            launchPlayer(intent)
         }
     }
 }
@@ -53,21 +56,17 @@ internal fun MainActivity.setMode(mode: VideoMode) {
 
 internal fun MainActivity.handleBackNavigation(): Boolean {
     if (exitSearchMode()) {
+        browserBackGuard.onNavigationHandled()
         return true
     }
     if (selectionController.isSelectionMode()) {
         selectionController.clearSelection()
+        browserBackGuard.onNavigationHandled()
         return true
     }
-    val current = viewModel.getState().value ?: browserState
-    if (current.currentMode == VideoMode.HIERARCHY && current.hierarchyPath.isNotEmpty()) {
-        val nextPath = getParentPath(current.hierarchyPath)
-        viewModel.updateState { it.copy(hierarchyPath = nextPath) }
+    if (viewModel.navigateUp()) {
+        browserBackGuard.onNavigationHandled()
         loadIfPermitted(useCache = true)
-        return true
-    }
-    if (current.inFolderVideos) {
-        setMode(VideoMode.FOLDERS)
         return true
     }
     return false

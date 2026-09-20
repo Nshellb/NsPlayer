@@ -53,10 +53,12 @@ class VideoListAdapter :
     )
 
     fun submit(nextItems: List<DisplayItem>?, onCommitted: (() -> Unit)? = null) {
-        val nextList = nextItems?.toList() ?: emptyList()
+        // Keep null so AsyncListDiffer clears synchronously and cancels pending diffs
+        // when navigation invalidates the previous directory.
+        val nextList = nextItems?.toList()
         val previousSelectionCount = selectedKeys.size
         val previousSelectionMode = selectionMode
-        val nextKeys = nextList.asSequence()
+        val nextKeys = nextList.orEmpty().asSequence()
             .mapNotNull { selectionKeyOf(it) }
             .toSet()
         if (selectedKeys.isNotEmpty()) {

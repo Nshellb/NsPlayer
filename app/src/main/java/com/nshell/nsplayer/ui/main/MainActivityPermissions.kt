@@ -13,7 +13,7 @@ internal fun MainActivity.loadIfPermitted(
     useCache: Boolean = false,
     showRefreshing: Boolean = false
 ) {
-    val current = viewModel.getState().value ?: browserState
+    val current = browserState
     if (hasVideoPermission()) {
         when {
             current.currentMode == VideoMode.HIERARCHY -> viewModel.loadHierarchy(
@@ -97,13 +97,14 @@ internal fun MainActivity.requestMediaPermissions() {
 }
 
 internal fun MainActivity.renderItems(items: List<DisplayItem>?) {
+    latestBrowseItems = items
     if (items == null) {
         if (!isSearchMode || !isShowingSearchResults) {
+            adapter.submit(null)
             emptyText.visibility = View.GONE
         }
         return
     }
-    latestBrowseItems = items
     if (isSearchMode && isShowingSearchResults) {
         return
     }
@@ -147,13 +148,12 @@ internal fun MainActivity.renderLoading(loading: Boolean?) {
 }
 
 internal fun MainActivity.applySettings(settings: SettingsState) {
-    val current = viewModel.getState().value ?: browserState
+    val current = browserState
     val nomediaChanged = current.nomediaEnabled != settings.nomediaEnabled
     val searchChanged =
         current.searchFoldersUseAll != settings.searchFoldersUseAll ||
             current.searchFolders != settings.searchFolders
     val shouldApplyInitialMode = !initialSettingsApplied &&
-        !restoredFromSavedState &&
         !viewModel.hasSavedNavigationState()
     adapter.setVisibleItems(settings.visibleItems)
     viewModel.updateState {

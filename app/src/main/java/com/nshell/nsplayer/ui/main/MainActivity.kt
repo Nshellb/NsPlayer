@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Parcelable
+import android.os.SystemClock
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -18,6 +19,7 @@ import com.nshell.nsplayer.ui.base.BaseActivity
 import com.nshell.nsplayer.ui.base.themeColor
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnPreDraw
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -57,9 +59,11 @@ class MainActivity : BaseActivity() {
     internal lateinit var transferController: TransferController
     internal lateinit var list: RecyclerView
     internal lateinit var refreshLayout: SwipeRefreshLayout
-    internal var browserState = VideoBrowserState()
+    internal val browserState: VideoBrowserState
+        get() = viewModel.currentState
+    internal val browserBackGuard = BrowserBackGuard { SystemClock.uptimeMillis() }
+    private var returningFromPlayer = false
     internal var initialSettingsApplied = false
-    internal var restoredFromSavedState = false
     internal var pendingRestoredSelectionKeys: ArrayList<String>? = null
     internal var pendingListLayoutState: Parcelable? = null
     internal var pendingRename: RenameRequest? = null
@@ -177,7 +181,7 @@ class MainActivity : BaseActivity() {
         }
 
         viewModel = ViewModelProvider(this)[VideoBrowserViewModel::class.java]
-        restoredFromSavedState = restoreNavigationState(savedInstanceState)
+        returningFromPlayer = savedInstanceState?.getBoolean(STATE_RETURNING_FROM_PLAYER) ?: false
         restoreTransientUiState(savedInstanceState)
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
         viewModel.getItems().observe(this) { renderItems(it) }
@@ -185,9 +189,18 @@ class MainActivity : BaseActivity() {
         viewModel.getRefreshing().observe(this) { refreshing ->
             refreshLayout.isRefreshing = refreshing == true
         }
+        var observedState = browserState
         viewModel.getState().observe(this) { state ->
-            val previous = browserState
-            browserState = state
+            val previous = observedState
+            observedState = state
+            if (!previous.hasSameNavigation(state)) {
+                pendingRestoredSelectionKeys = null
+                pendingListLayoutState = null
+                val generation = browserBackGuard.onNavigationChanged()
+                // The old list was cleared by the ViewModel. Wait until the new header
+                // and directory surface have reached the screen before allowing app exit.
+                list.doOnPreDraw { browserBackGuard.onNavigationRendered(generation) }
+            }
             val displayChanged = previous.videoDisplayMode != state.videoDisplayMode
             val tileSpanChanged = previous.tileSpanCount != state.tileSpanCount
             if (displayChanged || tileSpanChanged) {
@@ -231,12 +244,7 @@ class MainActivity : BaseActivity() {
         }
 
         headerBackButton.setOnClickListener {
-            if (handleBackNavigation()) {
-                return@setOnClickListener
-            }
-            if (browserState.inFolderVideos) {
-                setMode(VideoMode.FOLDERS)
-            }
+            handleBackNavigation()
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -244,8 +252,16 @@ class MainActivity : BaseActivity() {
                 if (handleBackNavigation()) {
                     return
                 }
+                if (browserBackGuard.shouldConsumeRootBack()) {
+                    return
+                }
                 isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
+                try {
+                    onBackPressedDispatcher.onBackPressed()
+                } finally {
+                    // Root Back can background this Activity without destroying it.
+                    isEnabled = true
+                }
             }
         })
 
@@ -266,7 +282,16 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (returningFromPlayer) {
+            returningFromPlayer = false
+            browserBackGuard.onNavigationHandled()
+        }
         settingsViewModel.refresh()
+    }
+
+    internal fun launchPlayer(intent: Intent) {
+        returningFromPlayer = true
+        startActivity(intent)
     }
 
     override fun onDestroy() {
@@ -278,12 +303,7 @@ class MainActivity : BaseActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        val current = viewModel.getState().value ?: browserState
-        outState.putString(STATE_MODE, current.currentMode.name)
-        outState.putBoolean(STATE_IN_FOLDER, current.inFolderVideos)
-        outState.putString(STATE_BUCKET_ID, current.selectedBucketId)
-        outState.putString(STATE_BUCKET_NAME, current.selectedBucketName)
-        outState.putString(STATE_HIERARCHY_PATH, current.hierarchyPath)
+        outState.putBoolean(STATE_RETURNING_FROM_PLAYER, returningFromPlayer)
         val selectedKeys = adapter.getSelectedKeys()
         if (selectedKeys.isNotEmpty()) {
             outState.putStringArrayList(STATE_SELECTION_KEYS, selectedKeys)
@@ -317,7 +337,7 @@ class MainActivity : BaseActivity() {
             return
         }
         Toast.makeText(this, getString(R.string.playlist_loading), Toast.LENGTH_SHORT).show()
-        val current = viewModel.getState().value ?: browserState
+        val current = browserState
         val sortMode = current.sortMode
         val sortOrder = current.sortOrder
         val nomediaEnabled = current.nomediaEnabled
@@ -405,7 +425,7 @@ class MainActivity : BaseActivity() {
             titles
         )
         intent.putExtra(com.nshell.nsplayer.ui.player.PlayerActivity.EXTRA_PLAYLIST_INDEX, 0)
-        startActivity(intent)
+        launchPlayer(intent)
     }
 
     companion object {
@@ -413,37 +433,9 @@ class MainActivity : BaseActivity() {
         internal const val PREFS = "nsplayer_prefs"
         internal const val KEY_FOLDER_RENAME_TREE_URI = "folder_rename_tree_uri"
         internal const val VOLUME_PREFIX = "volume:"
-        private const val STATE_MODE = "state_mode"
-        private const val STATE_IN_FOLDER = "state_in_folder"
-        private const val STATE_BUCKET_ID = "state_bucket_id"
-        private const val STATE_BUCKET_NAME = "state_bucket_name"
-        private const val STATE_HIERARCHY_PATH = "state_hierarchy_path"
+        private const val STATE_RETURNING_FROM_PLAYER = "state_returning_from_player"
         private const val STATE_SELECTION_KEYS = "state_selection_keys"
         private const val STATE_LIST_LAYOUT = "state_list_layout"
-    }
-
-    private fun restoreNavigationState(savedInstanceState: Bundle?): Boolean {
-        if (savedInstanceState == null) {
-            return false
-        }
-        val modeName = savedInstanceState.getString(STATE_MODE) ?: return false
-        val mode = runCatching { VideoMode.valueOf(modeName) }.getOrNull() ?: return false
-        val hierarchyPath = savedInstanceState.getString(STATE_HIERARCHY_PATH) ?: ""
-        val bucketId = savedInstanceState.getString(STATE_BUCKET_ID)
-        val bucketName = savedInstanceState.getString(STATE_BUCKET_NAME)
-        val inFolder = mode == VideoMode.FOLDERS &&
-            savedInstanceState.getBoolean(STATE_IN_FOLDER, false) &&
-            !bucketId.isNullOrEmpty()
-        viewModel.updateState {
-            it.copy(
-                currentMode = mode,
-                inFolderVideos = inFolder,
-                selectedBucketId = if (inFolder) bucketId else null,
-                selectedBucketName = if (inFolder) bucketName else null,
-                hierarchyPath = if (mode == VideoMode.HIERARCHY) hierarchyPath else ""
-            )
-        }
-        return true
     }
 
     private fun restoreTransientUiState(savedInstanceState: Bundle?) {

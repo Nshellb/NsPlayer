@@ -1,6 +1,8 @@
 package com.nshell.nsplayer.ui.main
 
 import android.content.ContentResolver
+import android.os.Handler
+import android.os.Looper
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.SavedStateHandle
@@ -28,6 +30,8 @@ class VideoBrowserViewModel(
     private val prefetchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val cache: VideoListCache? = NsPlayerApp.appContext()?.let { VideoListCache(it) }
     private val requestCounter = AtomicLong(0L)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var freshResultRequestId = 0L
 
     fun getItems(): LiveData<List<DisplayItem>?> = items
 
@@ -37,17 +41,30 @@ class VideoBrowserViewModel(
 
     fun getState(): LiveData<VideoBrowserState> = state
 
+    val currentState: VideoBrowserState
+        get() = state.value ?: VideoBrowserState()
+
     fun setState(newState: VideoBrowserState) {
-        val normalized = normalizeNavigationState(newState)
-        state.value = normalized
+        val normalized = newState.normalizedNavigationState()
+        if (!currentState.hasSameNavigation(normalized)) {
+            // Invalidate both queued worker results and the old directory's displayed list.
+            requestCounter.incrementAndGet()
+            items.value = null
+            loading.value = false
+            refreshing.value = false
+        }
         saveNavigationState(normalized)
+        state.value = normalized
     }
 
     fun updateState(update: (VideoBrowserState) -> VideoBrowserState) {
-        val current = state.value ?: VideoBrowserState()
-        val updated = normalizeNavigationState(update(current))
-        state.value = updated
-        saveNavigationState(updated)
+        setState(update(currentState))
+    }
+
+    fun navigateUp(): Boolean {
+        val parent = currentState.parentNavigationState() ?: return false
+        setState(parent)
+        return true
     }
 
     fun hasSavedNavigationState(): Boolean =
@@ -60,15 +77,13 @@ class VideoBrowserViewModel(
         val mode = savedStateHandle.get<String>(KEY_MODE)
             ?.let { value -> runCatching { VideoMode.valueOf(value) }.getOrNull() }
             ?: VideoMode.FOLDERS
-        return normalizeNavigationState(
-            VideoBrowserState(
-                currentMode = mode,
-                inFolderVideos = savedStateHandle[KEY_IN_FOLDER] ?: false,
-                selectedBucketId = savedStateHandle[KEY_BUCKET_ID],
-                selectedBucketName = savedStateHandle[KEY_BUCKET_NAME],
-                hierarchyPath = savedStateHandle[KEY_HIERARCHY_PATH] ?: ""
-            )
-        )
+        return VideoBrowserState(
+            currentMode = mode,
+            inFolderVideos = savedStateHandle[KEY_IN_FOLDER] ?: false,
+            selectedBucketId = savedStateHandle[KEY_BUCKET_ID],
+            selectedBucketName = savedStateHandle[KEY_BUCKET_NAME],
+            hierarchyPath = savedStateHandle[KEY_HIERARCHY_PATH] ?: ""
+        ).normalizedNavigationState()
     }
 
     private fun saveNavigationState(value: VideoBrowserState) {
@@ -78,22 +93,6 @@ class VideoBrowserViewModel(
         savedStateHandle[KEY_BUCKET_ID] = value.selectedBucketId
         savedStateHandle[KEY_BUCKET_NAME] = value.selectedBucketName
         savedStateHandle[KEY_HIERARCHY_PATH] = value.hierarchyPath
-    }
-
-    private fun normalizeNavigationState(value: VideoBrowserState): VideoBrowserState {
-        val validFolder = value.currentMode == VideoMode.FOLDERS &&
-            value.inFolderVideos &&
-            !value.selectedBucketId.isNullOrEmpty()
-        return value.copy(
-            inFolderVideos = validFolder,
-            selectedBucketId = if (validFolder) value.selectedBucketId else null,
-            selectedBucketName = if (validFolder) value.selectedBucketName else null,
-            hierarchyPath = if (value.currentMode == VideoMode.HIERARCHY) {
-                value.hierarchyPath
-            } else {
-                ""
-            }
-        )
     }
 
     fun load(
@@ -240,6 +239,7 @@ class VideoBrowserViewModel(
         prefetch: ((List<DisplayItem>, Long) -> Unit)? = null
     ) {
         val requestId = requestCounter.incrementAndGet()
+        freshResultRequestId = 0L
         if (showRefreshing && !useCache) {
             refreshing.value = true
         } else if (!useCache) {
@@ -247,32 +247,49 @@ class VideoBrowserViewModel(
         }
         if (useCache) {
             cacheExecutor.execute {
+                if (requestId != requestCounter.get()) {
+                    return@execute
+                }
                 val cached = cache?.read(key)
-                if (!cached.isNullOrEmpty()) {
-                    if (requestId == requestCounter.get()) {
-                        items.postValue(cached)
-                        if (showRefreshing) {
-                            refreshing.postValue(false)
-                        } else {
-                            loading.postValue(false)
-                        }
+                mainHandler.post {
+                    // Check at delivery time: a navigation can happen after the worker finishes.
+                    if (requestId != requestCounter.get() || freshResultRequestId == requestId) {
+                        return@post
                     }
-                } else if (requestId == requestCounter.get()) {
-                    if (showRefreshing) {
-                        refreshing.postValue(true)
+                    if (cached != null) {
+                        items.value = cached
+                        if (showRefreshing) {
+                            refreshing.value = false
+                        } else {
+                            loading.value = false
+                        }
                     } else {
-                        loading.postValue(true)
+                        if (showRefreshing) {
+                            refreshing.value = true
+                        } else {
+                            loading.value = true
+                        }
                     }
                 }
             }
         }
         executor.execute {
+            if (requestId != requestCounter.get()) {
+                return@execute
+            }
             val result = loader()
             cache?.write(key, result)
+            mainHandler.post {
+                if (requestId != requestCounter.get()) {
+                    return@post
+                }
+                // A slow cache read must never replace this request's fresh result.
+                freshResultRequestId = requestId
+                items.value = result
+                loading.value = false
+                refreshing.value = false
+            }
             if (requestId == requestCounter.get()) {
-                items.postValue(result)
-                loading.postValue(false)
-                refreshing.postValue(false)
                 prefetch?.invoke(result, requestId)
             }
         }
@@ -280,6 +297,8 @@ class VideoBrowserViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        requestCounter.incrementAndGet()
+        mainHandler.removeCallbacksAndMessages(null)
         executor.shutdown()
         cacheExecutor.shutdown()
         prefetchExecutor.shutdown()
