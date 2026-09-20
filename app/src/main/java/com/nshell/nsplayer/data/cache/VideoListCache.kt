@@ -86,6 +86,7 @@ class VideoListCache(context: Context) {
         }
     }
 
+    @Synchronized
     fun write(key: Key, items: List<DisplayItem>) {
         if (!dir.exists() && !dir.mkdirs()) {
             return

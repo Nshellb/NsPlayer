@@ -21,7 +21,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun getSettings(): LiveData<SettingsState> = settings
 
     fun refresh() {
-        settings.value = repository.load()
+        val updated = repository.load()
+        if (settings.value != updated) {
+            settings.value = updated
+        }
     }
 
     fun updateMode(mode: VideoMode) {

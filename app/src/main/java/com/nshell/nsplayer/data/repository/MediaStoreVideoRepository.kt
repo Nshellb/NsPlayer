@@ -2,7 +2,6 @@
 
 import android.content.ContentResolver
 import android.content.ContentUris
-import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -28,13 +27,13 @@ class MediaStoreVideoRepository : VideoRepository {
         val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
         val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
         val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
-        sortEntries(filtered, sortMode, sortOrder)
-        val enriched = attachSubtitleInfo(filtered, resolver)
         return when (mode) {
-            VideoMode.VIDEOS -> buildVideoItems(enriched)
-            VideoMode.HIERARCHY ->
-                buildHierarchyLevelItems(enriched, "", sortMode, sortOrder, noMediaIndex)
-            VideoMode.FOLDERS -> buildFolderItems(enriched)
+            VideoMode.VIDEOS -> {
+                sortEntries(filtered, sortMode, sortOrder)
+                buildVideoItems(attachSubtitleInfo(filtered, resolver))
+            }
+            VideoMode.HIERARCHY -> buildVolumeRootItems(filtered)
+            VideoMode.FOLDERS -> buildFolderItems(filtered)
         }
     }
 
@@ -73,8 +72,7 @@ class MediaStoreVideoRepository : VideoRepository {
         val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
         val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
         val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
-        val enriched = attachSubtitleInfo(filtered, resolver)
-        return buildHierarchyLevelItems(enriched, path, sortMode, sortOrder, noMediaIndex)
+        return buildHierarchyLevelItems(filtered, path, sortMode, sortOrder, noMediaIndex, resolver)
     }
 
     override fun searchVideos(
@@ -102,13 +100,12 @@ class MediaStoreVideoRepository : VideoRepository {
         val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
         val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
         sortEntries(filtered, sortMode, sortOrder)
-        val enriched = attachSubtitleInfo(filtered, resolver)
-        val videoItems = buildVideoItems(enriched)
-        return if (limit != null && limit > 0) {
-            videoItems.take(limit)
+        val visibleEntries = if (limit != null && limit > 0) {
+            filtered.take(limit)
         } else {
-            videoItems
+            filtered
         }
+        return buildVideoItems(attachSubtitleInfo(visibleEntries, resolver))
     }
 
     fun loadVideosUnderHierarchy(
@@ -274,7 +271,8 @@ class MediaStoreVideoRepository : VideoRepository {
         currentPath: String,
         sortMode: VideoSortMode,
         sortOrder: VideoSortOrder,
-        noMediaIndex: Map<String, Set<String>>
+        noMediaIndex: Map<String, Set<String>>,
+        resolver: ContentResolver
     ): List<DisplayItem> {
         if (currentPath.isEmpty()) {
             return buildVolumeRootItems(entries)
@@ -346,7 +344,8 @@ class MediaStoreVideoRepository : VideoRepository {
             )
         }
         sortEntries(videos, sortMode, sortOrder)
-        for (entry in videos) {
+        // Folder rows only need counts. Query subtitle badges for visible videos.
+        for (entry in attachSubtitleInfo(videos, resolver)) {
             items.add(buildVideoItem(entry))
         }
         return items
@@ -398,9 +397,9 @@ class MediaStoreVideoRepository : VideoRepository {
     }
 
     private fun attachSubtitleInfo(
-        entries: MutableList<VideoEntry>,
+        entries: List<VideoEntry>,
         resolver: ContentResolver
-    ): MutableList<VideoEntry> {
+    ): List<VideoEntry> {
         if (entries.isEmpty()) {
             return entries
         }
@@ -423,7 +422,7 @@ class MediaStoreVideoRepository : VideoRepository {
                     entry.copy(hasSubtitle = hasSubtitle)
                 }
             }
-        }.toMutableList()
+        }
     }
 
     private fun applyNoMediaFilter(
@@ -557,19 +556,27 @@ class MediaStoreVideoRepository : VideoRepository {
                 MediaStore.Files.FileColumns.DISPLAY_NAME,
                 MediaStore.Files.FileColumns.RELATIVE_PATH
             )
-            paths.forEach { relativePath ->
+            // Bound SQL arguments while avoiding a provider round trip per directory.
+            paths.chunked(SUBTITLE_QUERY_PATH_LIMIT).forEach { pathBatch ->
+                val pathPlaceholders = pathBatch.joinToString(",") { "?" }
+                val extensionSelection = allowedExt.joinToString(" OR ") {
+                    "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
+                }
+                val selection = "${MediaStore.Files.FileColumns.RELATIVE_PATH} IN ($pathPlaceholders)" +
+                    " AND ($extensionSelection)"
+                val selectionArgs = (pathBatch + allowedExt.map { "%.$it" }).toTypedArray()
                 resolver.query(
                     filesUri,
                     projection,
-                    "${MediaStore.Files.FileColumns.RELATIVE_PATH}=?",
-                    arrayOf(relativePath),
+                    selection,
+                    selectionArgs,
                     null
                 )?.use { cursor ->
                     val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
                     val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.RELATIVE_PATH)
                     while (cursor.moveToNext()) {
                         val name = cursor.getString(nameCol) ?: continue
-                        val path = cursor.getString(pathCol) ?: relativePath
+                        val path = cursor.getString(pathCol) ?: continue
                         val ext = name.substringAfterLast('.', "").lowercase(Locale.US)
                         if (!allowedExt.contains(ext)) {
                             continue
@@ -718,6 +725,7 @@ class MediaStoreVideoRepository : VideoRepository {
 
     companion object {
         private val VIDEOS_URI: Uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        private const val SUBTITLE_QUERY_PATH_LIMIT = 100
         private const val VOLUME_PREFIX = "volume:"
     }
 }

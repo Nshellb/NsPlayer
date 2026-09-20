@@ -6,15 +6,16 @@ import com.nshell.nsplayer.data.settings.SettingsRepository
 
 open class BaseActivity : AppCompatActivity() {
     private var lastLanguageTag: String? = null
+    private val languageSettings by lazy { SettingsRepository(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        lastLanguageTag = SettingsRepository(this).load().languageTag
+        lastLanguageTag = languageSettings.loadLanguageTag()
     }
 
     override fun onResume() {
         super.onResume()
-        val currentTag = SettingsRepository(this).load().languageTag
+        val currentTag = languageSettings.loadLanguageTag()
         if (currentTag != lastLanguageTag && !isFinishing && !isDestroyed) {
             lastLanguageTag = currentTag
             recreate()

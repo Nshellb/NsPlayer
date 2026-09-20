@@ -2,9 +2,11 @@ package com.nshell.nsplayer.data.recent
 
 import android.content.Context
 import android.net.Uri
+import android.os.Process
 import com.nshell.nsplayer.ui.widget.recent.RecentPlaybackWidgetProvider
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.Executors
 
 class RecentPlaybackStore(context: Context) {
     private val appContext = context.applicationContext
@@ -24,18 +26,24 @@ class RecentPlaybackStore(context: Context) {
         val normalizedTitle = title.ifBlank {
             uri.lastPathSegment?.substringAfterLast('/') ?: uriText
         }
-        val updated = loadRecentInternal().toMutableList()
-        updated.removeAll { it.uri == uriText }
-        updated.add(
-            0,
-            Item(
-                uri = uriText,
-                title = normalizedTitle,
-                positionMs = positionMs.coerceAtLeast(0L),
-                durationMs = durationMs.coerceAtLeast(0L),
-                playedAtMs = System.currentTimeMillis()
-            )
+        val item = Item(
+            uri = uriText,
+            title = normalizedTitle,
+            positionMs = positionMs.coerceAtLeast(0L),
+            durationMs = durationMs.coerceAtLeast(0L),
+            playedAtMs = System.currentTimeMillis()
         )
+        // Share one queue across Activity instances so an older snapshot cannot
+        // overwrite a newer one. Only the application context is retained.
+        writer.execute {
+            savePlayback(item)
+        }
+    }
+
+    private fun savePlayback(item: Item) {
+        val updated = loadRecentInternal().toMutableList()
+        updated.removeAll { it.uri == item.uri }
+        updated.add(0, item)
         if (updated.size > MAX_ITEMS) {
             updated.subList(MAX_ITEMS, updated.size).clear()
         }
@@ -77,8 +85,10 @@ class RecentPlaybackStore(context: Context) {
     }
 
     private fun saveRecentInternal(items: List<Item>) {
+        // Already on the writer thread: finish persistence here instead of
+        // adding an apply() flush that the Activity lifecycle may wait for.
         if (items.isEmpty()) {
-            preferences.edit().remove(KEY_RECENT_ITEMS).apply()
+            preferences.edit().remove(KEY_RECENT_ITEMS).commit()
             return
         }
         val array = JSONArray()
@@ -92,7 +102,7 @@ class RecentPlaybackStore(context: Context) {
                     .put(JSON_PLAYED_AT_MS, item.playedAtMs)
             )
         }
-        preferences.edit().putString(KEY_RECENT_ITEMS, array.toString()).apply()
+        preferences.edit().putString(KEY_RECENT_ITEMS, array.toString()).commit()
     }
 
     data class Item(
@@ -104,6 +114,13 @@ class RecentPlaybackStore(context: Context) {
     )
 
     companion object {
+        private val writer = Executors.newSingleThreadExecutor { task ->
+            Thread({
+                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                task.run()
+            }, "recent-playback-writer")
+        }
+
         private const val PREFS = "nsplayer_prefs"
         private const val KEY_RECENT_ITEMS = "recent_playback_items"
         private const val MAX_ITEMS = 50

@@ -278,7 +278,9 @@ class VideoBrowserViewModel(
                 return@execute
             }
             val result = loader()
-            cache?.write(key, result)
+            if (requestId != requestCounter.get()) {
+                return@execute
+            }
             mainHandler.post {
                 if (requestId != requestCounter.get()) {
                     return@post
@@ -288,6 +290,12 @@ class VideoBrowserViewModel(
                 items.value = result
                 loading.value = false
                 refreshing.value = false
+                // Serialization and disk writes must not delay this list or the next query.
+                cacheExecutor.execute {
+                    if (requestId == requestCounter.get()) {
+                        cache?.write(key, result)
+                    }
+                }
             }
             if (requestId == requestCounter.get()) {
                 prefetch?.invoke(result, requestId)
@@ -354,7 +362,9 @@ class VideoBrowserViewModel(
                     searchFoldersUseAll,
                     searchFolders
                 )
-                cache?.write(key, result)
+                if (requestId == requestCounter.get()) {
+                    cache?.write(key, result)
+                }
             }
         }
     }

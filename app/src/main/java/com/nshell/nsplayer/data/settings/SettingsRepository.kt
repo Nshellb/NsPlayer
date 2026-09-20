@@ -11,16 +11,23 @@ class SettingsRepository(context: Context) {
     private val preferences: SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    fun loadLanguageTag(): String? = preferences.getString(KEY_LANGUAGE, null)
+
+    fun loadThemeMode(): ThemeMode = runCatching {
+        ThemeMode.valueOf(preferences.getString(KEY_THEME, null) ?: ThemeMode.SYSTEM.name)
+    }.getOrDefault(ThemeMode.SYSTEM)
+
+    fun loadAutoPipEnabled(): Boolean = preferences.getBoolean(KEY_AUTO_PIP, false)
+
     fun load(): SettingsState {
         val modeValue = preferences.getString(KEY_MODE, VideoMode.FOLDERS.name)
         val displayValue = preferences.getString(KEY_DISPLAY, VideoDisplayMode.LIST.name)
         val tileSpanValue = preferences.getInt(KEY_TILE_SPAN, 2)
         val sortValue = preferences.getString(KEY_SORT, VideoSortMode.MODIFIED.name)
         val sortOrderValue = preferences.getString(KEY_SORT_ORDER, VideoSortOrder.DESC.name)
-        val languageTag = preferences.getString(KEY_LANGUAGE, null)
-        val themeValue = preferences.getString(KEY_THEME, ThemeMode.SYSTEM.name)
+        val languageTag = loadLanguageTag()
         val nomediaEnabled = preferences.getBoolean(KEY_NOMEDIA, false)
-        val autoPipEnabled = preferences.getBoolean(KEY_AUTO_PIP, false)
+        val autoPipEnabled = loadAutoPipEnabled()
         val translationEngineValue =
             preferences.getString(KEY_TRANSLATION_ENGINE, TranslationEngine.ML_KIT.name)
         val searchFoldersRaw = preferences.getStringSet(KEY_SEARCH_FOLDERS, null)
@@ -32,7 +39,8 @@ class SettingsRepository(context: Context) {
             ?.mapNotNull { runCatching { VisibleItem.valueOf(it) }.getOrNull() }
             ?.toSet()
 
-        val visibleItems = if (hasVisibleItemKeys()) {
+        val hasVisibleItems = hasVisibleItemKeys()
+        val visibleItems = if (hasVisibleItems) {
             VisibleItem.values().filter { item ->
                 preferences.getBoolean(visibleItemKey(item), defaultVisibleItems.contains(item))
             }.toSet()
@@ -56,9 +64,7 @@ class SettingsRepository(context: Context) {
         val sortOrder = runCatching {
             VideoSortOrder.valueOf(sortOrderValue ?: VideoSortOrder.DESC.name)
         }.getOrElse { VideoSortOrder.DESC }
-        val themeMode = runCatching {
-            ThemeMode.valueOf(themeValue ?: ThemeMode.SYSTEM.name)
-        }.getOrElse { ThemeMode.SYSTEM }
+        val themeMode = loadThemeMode()
         val translationEngine = runCatching {
             TranslationEngine.valueOf(translationEngineValue ?: TranslationEngine.ML_KIT.name)
         }.getOrElse { TranslationEngine.ML_KIT }
@@ -78,7 +84,7 @@ class SettingsRepository(context: Context) {
             searchFolders = searchFolders,
             visibleItems = visibleItems
         )
-        if (!hasVisibleItemKeys()) {
+        if (!hasVisibleItems) {
             persistVisibleItems(visibleItems)
         }
         return state
@@ -178,14 +184,13 @@ class SettingsRepository(context: Context) {
     }
 
     private fun hasVisibleItemKeys(): Boolean {
-        val keys = preferences.all.keys
-        return keys.contains(KEY_VISIBLE_ITEM_THUMBNAIL) ||
-            keys.contains(KEY_VISIBLE_ITEM_DURATION) ||
-            keys.contains(KEY_VISIBLE_ITEM_EXTENSION) ||
-            keys.contains(KEY_VISIBLE_ITEM_RESOLUTION) ||
-            keys.contains(KEY_VISIBLE_ITEM_FRAME_RATE) ||
-            keys.contains(KEY_VISIBLE_ITEM_SIZE) ||
-            keys.contains(KEY_VISIBLE_ITEM_MODIFIED)
+        return preferences.contains(KEY_VISIBLE_ITEM_THUMBNAIL) ||
+            preferences.contains(KEY_VISIBLE_ITEM_DURATION) ||
+            preferences.contains(KEY_VISIBLE_ITEM_EXTENSION) ||
+            preferences.contains(KEY_VISIBLE_ITEM_RESOLUTION) ||
+            preferences.contains(KEY_VISIBLE_ITEM_FRAME_RATE) ||
+            preferences.contains(KEY_VISIBLE_ITEM_SIZE) ||
+            preferences.contains(KEY_VISIBLE_ITEM_MODIFIED)
     }
 
     private fun persistVisibleItems(items: Set<VisibleItem>) {

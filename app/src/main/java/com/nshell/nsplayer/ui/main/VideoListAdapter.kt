@@ -58,10 +58,10 @@ class VideoListAdapter :
         val nextList = nextItems?.toList()
         val previousSelectionCount = selectedKeys.size
         val previousSelectionMode = selectionMode
-        val nextKeys = nextList.orEmpty().asSequence()
-            .mapNotNull { selectionKeyOf(it) }
-            .toSet()
         if (selectedKeys.isNotEmpty()) {
+            val nextKeys = nextList.orEmpty().asSequence()
+                .mapNotNull { selectionKeyOf(it) }
+                .toSet()
             selectedKeys.retainAll(nextKeys)
         }
         selectionMode = selectedKeys.isNotEmpty()
@@ -258,6 +258,11 @@ class VideoListAdapter :
         return if (videoDisplayMode == VideoDisplayMode.TILE) VIEW_TYPE_TILE_DEFAULT else VIEW_TYPE_DEFAULT
     }
 
+    override fun onViewRecycled(holder: ViewHolder) {
+        holder.thumbnail?.let { Glide.with(it).clear(it) }
+        super.onViewRecycled(holder)
+    }
+
     class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val title: TextView? = itemView.findViewById(R.id.title)
         val subtitle: TextView? = itemView.findViewById(R.id.subtitle)
@@ -295,6 +300,7 @@ class VideoListAdapter :
         }
 
         holder.thumbnail?.let { thumbnail ->
+            Glide.with(thumbnail).clear(thumbnail)
             val isFolder = item.type == DisplayItem.Type.FOLDER || item.type == DisplayItem.Type.HIERARCHY
             val iconRes = if (isFolder) R.drawable.ic_folder else R.drawable.ic_video
             thumbnail.setImageResource(iconRes)
@@ -476,16 +482,16 @@ class VideoListAdapter :
             thumbnail.clearColorFilter()
             if (!uri.isNullOrEmpty()) {
                 thumbnail.scaleType = ImageView.ScaleType.CENTER_CROP
-                Glide.with(thumbnail.context)
+                Glide.with(thumbnail)
                     .load(Uri.parse(uri))
                     .centerCrop()
                     .into(thumbnail)
             } else {
-                Glide.with(thumbnail.context).clear(thumbnail)
+                Glide.with(thumbnail).clear(thumbnail)
                 thumbnail.setImageDrawable(null)
             }
         } else {
-            Glide.with(thumbnail.context).clear(thumbnail)
+            Glide.with(thumbnail).clear(thumbnail)
             thumbnail.setImageResource(R.drawable.ic_video)
             thumbnail.scaleType = ImageView.ScaleType.CENTER_INSIDE
             thumbnail.setColorFilter(

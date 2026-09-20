@@ -16,10 +16,9 @@ class NsPlayerApp : Application(), Application.ActivityLifecycleCallbacks {
         super.onCreate()
         instance = this
         registerActivityLifecycleCallbacks(this)
-        val settings = SettingsRepository(this).load()
-        val themeMode = settings.themeMode
-        applyTheme(themeMode)
-        applyLanguage(settings.languageTag, recreate = false)
+        val settings = SettingsRepository(this)
+        applyTheme(settings.loadThemeMode())
+        applyLanguage(settings.loadLanguageTag(), recreate = false)
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {

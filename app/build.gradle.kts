@@ -58,7 +58,8 @@ android {
                 "NOTION_DATA_SOURCE_ID",
                 "\"${escapeBuildConfig(notionDataSourceId)}\""
             )
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

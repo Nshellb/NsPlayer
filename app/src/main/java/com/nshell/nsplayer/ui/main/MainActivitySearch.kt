@@ -101,6 +101,7 @@ internal fun MainActivity.submitSearchQuery(sourceQuery: String? = null) {
     previewDebounceRunnable = null
 
     if (query.isEmpty()) {
+        searchRequestCounter.incrementAndGet()
         committedSearchQuery = ""
         isShowingSearchResults = false
         hidePreviewList()
@@ -121,6 +122,9 @@ internal fun MainActivity.submitSearchQuery(sourceQuery: String? = null) {
     val current = browserState
 
     searchExecutor.execute {
+        if (searchRequestCounter.get() != requestId) {
+            return@execute
+        }
         val results = searchRepository.searchVideos(
             query = query,
             sortMode = current.sortMode,
@@ -155,6 +159,8 @@ private fun MainActivity.onSearchTextChanged(rawQuery: String) {
         return
     }
     val query = rawQuery.trim()
+    // Invalidate in-flight results immediately, including when the input is cleared.
+    searchRequestCounter.incrementAndGet()
     if (isShowingSearchResults) {
         isShowingSearchResults = false
         committedSearchQuery = ""
@@ -186,6 +192,9 @@ private fun MainActivity.requestSearchPreview(query: String) {
     val current = browserState
 
     searchExecutor.execute {
+        if (searchRequestCounter.get() != requestId) {
+            return@execute
+        }
         val previewItems = searchRepository.searchVideos(
             query = query,
             sortMode = current.sortMode,

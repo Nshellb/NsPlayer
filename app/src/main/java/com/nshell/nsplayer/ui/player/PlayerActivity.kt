@@ -9,7 +9,6 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.media.AudioManager
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -44,12 +43,13 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.PlayerView
-import java.io.IOException
 import java.io.File
+import java.io.InterruptedIOException
 import java.nio.charset.Charset
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -81,14 +81,20 @@ class PlayerActivity : BaseActivity() {
     private val uiHandler = Handler(Looper.getMainLooper())
     private val seekController = SeekController { android.os.SystemClock.elapsedRealtime() }
     private val subtitleResolver = Executors.newSingleThreadExecutor()
+    private val mediaInfoResolver = Executors.newSingleThreadExecutor()
     private val subtitleCandidatesByUri = mutableMapOf<Uri, List<SubtitleSource>>()
     private val pendingSubtitleRequests = mutableSetOf<Pair<Long, Uri>>()
+    private val preparedSubtitleUris = mutableMapOf<SubtitleCacheKey, Uri>()
+    private val pendingSubtitleConversions = mutableSetOf<Pair<Long, SubtitleCacheKey>>()
+    private val subtitleCacheFiles = mutableSetOf<File>()
     private val progressUpdater = object : Runnable {
         override fun run() {
             val activePlayer = player
             if (activePlayer != null) {
                 val seekUi = seekController.onPlayerProgress(activePlayer.toPlaybackSnapshot())
-                updateProgress(seekUi.displayedPositionMs, activePlayer.duration)
+                if (overlayContainer.visibility == View.VISIBLE && !isInPictureInPictureMode) {
+                    updateProgress(seekUi.displayedPositionMs, activePlayer.duration)
+                }
             }
             uiHandler.postDelayed(this, UI_UPDATE_INTERVAL_MS)
         }
@@ -129,16 +135,23 @@ class PlayerActivity : BaseActivity() {
     private var selectedSubtitle: SubtitleSource? = null
     private var subtitleSelectionMode = SubtitleSelectionMode.AUTO
     private var subtitleCandidates: List<SubtitleSource> = emptyList()
-    private var subtitleCacheFile: File? = null
     private var subtitleDialogSelectValue: TextView? = null
     private var subtitleDialogEnableSwitch: SwitchCompat? = null
+    private var updatingSubtitleDialog = false
+    private var subtitleSelectionRevision = 0L
     private var playbackSpeed = 1.0f
     private var repeatMode = Player.REPEAT_MODE_OFF
     private var shuffleEnabled = false
     private var pendingResumePrompt = false
     private var pendingLoadingSpinner = false
     private var playbackSessionId = 1L
+    @Volatile
     private var subtitleResolveGeneration = 0L
+    @Volatile
+    private var subtitlePreparationGeneration = 0L
+    @Volatile
+    private var playerActivityDestroyed = false
+    private var replacingSubtitleItem = false
     private var renderedIsPlaying: Boolean? = null
     private var renderedPositionSeconds = Long.MIN_VALUE
     private var renderedDurationSeconds = Long.MIN_VALUE
@@ -156,16 +169,33 @@ class PlayerActivity : BaseActivity() {
             } catch (_: SecurityException) {
                 // Ignore if persistable permission is not granted.
             }
-            val name = queryDisplayName(uri) ?: uri.lastPathSegment ?: getString(R.string.subtitle_settings)
-            val mimeType = guessSubtitleMimeType(name)
-            val extension = name.substringAfterLast('.', "")
-            selectedSubtitle = SubtitleSource(uri, name, mimeType, extension)
-            subtitleSelectionMode = SubtitleSelectionMode.MANUAL
-            subtitleEnabled = true
-            persistSubtitleEnabled()
-            subtitleDialogSelectValue?.text = selectedSubtitle?.label ?: getString(R.string.subtitle_none)
-            subtitleDialogEnableSwitch?.isChecked = true
-            applySubtitleSelection(selectedSubtitle)
+            val generation = subtitleResolveGeneration
+            val selectionRevision = ++subtitleSelectionRevision
+            val targetVideo = videoUri
+            mediaInfoResolver.execute {
+                if (playerActivityDestroyed || generation != subtitleResolveGeneration) {
+                    return@execute
+                }
+                val name = queryDisplayName(uri) ?: uri.lastPathSegment
+                    ?: getString(R.string.subtitle_settings)
+                val source = SubtitleSource(
+                    uri, name, guessSubtitleMimeType(name), name.substringAfterLast('.', "")
+                )
+                uiHandler.post {
+                    if (playerActivityDestroyed || generation != subtitleResolveGeneration ||
+                        videoUri != targetVideo || selectionRevision != subtitleSelectionRevision
+                    ) {
+                        return@post
+                    }
+                    selectedSubtitle = source
+                    subtitleSelectionMode = SubtitleSelectionMode.MANUAL
+                    subtitleEnabled = true
+                    persistSubtitleEnabled()
+                    subtitleDialogSelectValue?.text = source.label
+                    updateSubtitleDialogEnabled(true)
+                    applySubtitleSelection(source)
+                }
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -276,10 +306,11 @@ class PlayerActivity : BaseActivity() {
             return
         }
         titleText.text = playlistEntries.getOrNull(playlistIndex)?.title ?: titleText.text
+        requestExternalVideoTitle()
         loadSubtitlePreferences()
         loadPlaybackOptions()
         loadPlaybackSpeed()
-        requestSubtitleCandidatesForPlaylist()
+        requestNearbySubtitleCandidates()
         updateSubtitleButtonState()
         updateRepeatButton()
         updateShuffleButton()
@@ -288,8 +319,6 @@ class PlayerActivity : BaseActivity() {
         refreshPipSettings()
         if (userOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
             requestedOrientation = userOrientation
-        } else {
-            applyAutoOrientation(videoUri)
         }
     }
 
@@ -325,12 +354,14 @@ class PlayerActivity : BaseActivity() {
         saveRecentPlaybackSnapshot()
         saveResumePosition()
         releasePlayer()
-        clearSubtitleCache()
     }
 
     override fun onDestroy() {
+        playerActivityDestroyed = true
         subtitleResolveGeneration++
         subtitleResolver.shutdownNow()
+        mediaInfoResolver.shutdownNow()
+        clearSubtitleCache()
         super.onDestroy()
     }
 
@@ -356,6 +387,7 @@ class PlayerActivity : BaseActivity() {
             overlayContainer.visibility = View.GONE
             resumeButton.visibility = View.GONE
         } else {
+            player?.let { applyAutoOrientation(it.videoSize) }
             showOverlay()
         }
     }
@@ -366,7 +398,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun initializePlayer() {
-        if (player != null) {
+        if (player != null || playlistEntries.isEmpty()) {
             return
         }
         val loadControl = DefaultLoadControl.Builder()
@@ -424,7 +456,14 @@ class PlayerActivity : BaseActivity() {
                 updatePlaybackUi()
             }
 
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                applyAutoOrientation(videoSize)
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (replacingSubtitleItem) {
+                    return
+                }
                 val activePlayer = player ?: return
                 val index = activePlayer.currentMediaItemIndex
                 if (index < 0 || index >= playlistEntries.size) {
@@ -441,11 +480,17 @@ class PlayerActivity : BaseActivity() {
                     loadSubtitlePreferences()
                     autoSelectSubtitleIfAvailable()
                     applySubtitleEnabled(subtitleEnabled)
-                    attachResolvedSubtitleToCurrentItem()
-                    if (!subtitleCandidatesByUri.containsKey(videoUri)) {
-                        requestSubtitleCandidates(videoUri, index, subtitleResolveGeneration)
+                    val session = playbackSessionId
+                    // Run after listener dispatch so replacement callbacks cannot re-enter this transition.
+                    uiHandler.post {
+                        if (player === activePlayer && playbackSessionId == session &&
+                            activePlayer.currentMediaItemIndex == index && videoUri == entry.uri
+                        ) {
+                            attachResolvedSubtitleToCurrentItem()
+                        }
                     }
                 }
+                requestNearbySubtitleCandidates()
                 recordRecentPlayback(entry.uri, entry.title, 0L, 0L)
                 updateNavigationButtons()
             }
@@ -502,15 +547,13 @@ class PlayerActivity : BaseActivity() {
         loadPlaybackOptions()
         loadPlaybackSpeed()
         subtitleCandidates = emptyList()
-        requestSubtitleCandidatesForPlaylist()
+        requestExternalVideoTitle()
+        requestNearbySubtitleCandidates()
         updateSubtitleButtonState()
         updateRepeatButton()
         updateShuffleButton()
         updateNavigationButtons()
         updateSpeedButtonLabel()
-        if (userOrientation == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-            applyAutoOrientation(videoUri)
-        }
 
         val activePlayer = player ?: return
         playbackSessionId++
@@ -534,7 +577,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun refreshPipSettings() {
-        autoPipEnabled = settingsRepository.load().autoPipEnabled
+        autoPipEnabled = settingsRepository.loadAutoPipEnabled()
         pipButton.visibility = if (supportsPictureInPicture) View.VISIBLE else View.GONE
         pipButton.isEnabled = supportsPictureInPicture
         val pipColor = if (autoPipEnabled) {
@@ -579,6 +622,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun releasePlayer() {
         seekController.cancel()
+        playerView.player = null
         player?.release()
         player = null
     }
@@ -737,6 +781,10 @@ class PlayerActivity : BaseActivity() {
 
     private fun showOverlay() {
         overlayContainer.visibility = View.VISIBLE
+        player?.let { activePlayer ->
+            val seekUi = seekController.onPlayerProgress(activePlayer.toPlaybackSnapshot())
+            updateProgress(seekUi.displayedPositionMs, activePlayer.duration)
+        }
         scheduleOverlayHide()
     }
 
@@ -935,35 +983,25 @@ class PlayerActivity : BaseActivity() {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
 
-    private fun applyAutoOrientation(uri: Uri) {
-        if (userOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+    private fun applyAutoOrientation(videoSize: VideoSize) {
+        if (userOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED ||
+            videoSize.width <= 0 || videoSize.height <= 0 || isInPictureInPictureMode
+        ) {
             return
         }
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(this, uri)
-            val widthValue = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-            val heightValue = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-            if (widthValue == null || heightValue == null) {
-                return
-            }
-            val width = widthValue.toInt()
-            val height = heightValue.toInt()
-            if (width > height) {
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            } else {
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            }
-        } catch (_: RuntimeException) {
-            // Ignore invalid metadata.
-        } finally {
-            try {
-                retriever.release()
-            } catch (_: IOException) {
-                // Ignore release failures.
-            } catch (_: RuntimeException) {
-                // Ignore release failures.
-            }
+        val displayWidth = videoSize.width * videoSize.pixelWidthHeightRatio
+        val landscape = if (videoSize.unappliedRotationDegrees % 180 == 0) {
+            displayWidth > videoSize.height
+        } else {
+            videoSize.height > displayWidth
+        }
+        val orientation = if (landscape) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        if (requestedOrientation != orientation) {
+            requestedOrientation = orientation
         }
     }
 
@@ -1001,6 +1039,10 @@ class PlayerActivity : BaseActivity() {
         subtitleDialogEnableSwitch = enableSwitch
 
         enableSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (updatingSubtitleDialog) {
+                return@setOnCheckedChangeListener
+            }
+            subtitleSelectionRevision++
             subtitleEnabled = isChecked
             persistSubtitleEnabled()
             if (isChecked && selectedSubtitle == null) {
@@ -1019,6 +1061,9 @@ class PlayerActivity : BaseActivity() {
                 persistSubtitleSelection(null)
             }
             applySubtitleEnabled(subtitleEnabled)
+            if (isChecked) {
+                attachResolvedSubtitleToCurrentItem()
+            }
         }
 
         selectRow.setOnClickListener {
@@ -1071,12 +1116,13 @@ class PlayerActivity : BaseActivity() {
             .setItems(labels) { _, which ->
                 when (val choice = options[which]) {
                     SubtitleChoice.None -> {
+                        subtitleSelectionRevision++
                         selectedSubtitle = null
                         subtitleSelectionMode = SubtitleSelectionMode.NONE
                         subtitleEnabled = false
                         persistSubtitleEnabled()
                         persistSubtitleSelection(null)
-                        enableSwitch.isChecked = false
+                        updateSubtitleDialogEnabled(false, enableSwitch)
                         selectValue.text = getString(R.string.subtitle_none)
                         applySubtitleEnabled(false)
                     }
@@ -1084,18 +1130,31 @@ class PlayerActivity : BaseActivity() {
                         subtitlePickerLauncher.launch(SUBTITLE_MIME_TYPES)
                     }
                     is SubtitleChoice.Source -> {
+                        subtitleSelectionRevision++
                         selectedSubtitle = choice.source
                         subtitleSelectionMode = SubtitleSelectionMode.MANUAL
                         subtitleEnabled = true
                         persistSubtitleEnabled()
                         persistSubtitleSelection(selectedSubtitle)
-                        enableSwitch.isChecked = true
+                        updateSubtitleDialogEnabled(true, enableSwitch)
                         selectValue.text = choice.source.label
                         applySubtitleSelection(choice.source)
                     }
                 }
             }
             .show()
+    }
+
+    private fun updateSubtitleDialogEnabled(
+        enabled: Boolean,
+        enableSwitch: SwitchCompat? = subtitleDialogEnableSwitch
+    ) {
+        updatingSubtitleDialog = true
+        try {
+            enableSwitch?.isChecked = enabled
+        } finally {
+            updatingSubtitleDialog = false
+        }
     }
 
     private fun showSubtitleLanguageDialog(valueView: TextView) {
@@ -1110,6 +1169,7 @@ class PlayerActivity : BaseActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.subtitle_language)
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
+                subtitleSelectionRevision++
                 preferredSubtitleLanguage = options[which].code
                 subtitlePreferences.edit()
                     .putString(KEY_SUBTITLE_LANGUAGE, preferredSubtitleLanguage)
@@ -1138,6 +1198,7 @@ class PlayerActivity : BaseActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.subtitle_encoding)
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
+                subtitleSelectionRevision++
                 preferredSubtitleEncoding = options[which].code
                 subtitlePreferences.edit()
                     .putString(KEY_SUBTITLE_ENCODING, preferredSubtitleEncoding)
@@ -1154,29 +1215,51 @@ class PlayerActivity : BaseActivity() {
     private fun applySubtitleSelection(source: SubtitleSource?) {
         selectedSubtitle = source
         persistSubtitleSelection(source)
-        val activePlayer = player
-        if (activePlayer == null) {
-            updateSubtitleButtonState()
+        applySubtitleEnabled(subtitleEnabled)
+        updateSubtitleButtonState()
+        val activePlayer = player ?: return
+        if (!subtitleEnabled) {
             return
         }
-        val wasPlaying = activePlayer.isPlaying
-        val position = activePlayer.currentPosition
-        val index = activePlayer.currentMediaItemIndex.coerceAtLeast(0)
-        activePlayer.setMediaItems(buildMediaItems(), index, position)
-        activePlayer.prepare()
-        applySubtitleEnabled(subtitleEnabled)
-        applyPlaybackOptions()
-        if (wasPlaying) {
-            activePlayer.play()
+        val configurations = if (source == null) {
+            emptyList()
+        } else {
+            listOf(buildSubtitleConfiguration(source) ?: return)
         }
-        updateSubtitleButtonState()
+        val currentItem = activePlayer.currentMediaItem ?: return
+        if (currentItem.localConfiguration?.subtitleConfigurations == configurations) {
+            return
+        }
+        val position = activePlayer.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = activePlayer.playWhenReady
+        val playbackState = activePlayer.playbackState
+        val index = activePlayer.currentMediaItemIndex
+        val previousSeekParameters = activePlayer.seekParameters
+        // A subtitle change may recreate this source, but must not rebuild the entire playlist.
+        replacingSubtitleItem = true
+        try {
+            activePlayer.setSeekParameters(SeekParameters.EXACT)
+            activePlayer.replaceMediaItem(
+                index,
+                currentItem.buildUpon().setSubtitleConfigurations(configurations).build()
+            )
+            activePlayer.seekTo(index, position)
+            if (playbackState != Player.STATE_IDLE && activePlayer.playbackState == Player.STATE_IDLE) {
+                activePlayer.prepare()
+            }
+            activePlayer.playWhenReady = playWhenReady
+        } finally {
+            activePlayer.setSeekParameters(previousSeekParameters)
+            replacingSubtitleItem = false
+        }
     }
 
     private fun buildMediaItems(): List<MediaItem> {
         return playlistEntries.map { entry ->
             val subtitle = when {
-                entry.uri == videoUri && selectedSubtitle != null -> selectedSubtitle
-                subtitleEnabled && preferredSubtitleEncoding.equals(ENCODING_UTF8, true) ->
+                !subtitleEnabled -> null
+                entry.uri == videoUri -> selectedSubtitle
+                preferredSubtitleEncoding.equals(ENCODING_UTF8, true) ->
                     preferredSubtitleCandidate(subtitleCandidatesByUri[entry.uri].orEmpty())
                 else -> null
             }
@@ -1190,7 +1273,9 @@ class PlayerActivity : BaseActivity() {
     ): MediaItem {
         val builder = MediaItem.Builder().setUri(entry.uri)
         if (subtitle != null) {
-            builder.setSubtitleConfigurations(listOf(buildSubtitleConfiguration(subtitle)))
+            buildSubtitleConfiguration(subtitle)?.let { configuration ->
+                builder.setSubtitleConfigurations(listOf(configuration))
+            }
         }
         if (entry.title.isNotEmpty()) {
             builder.setMediaMetadata(
@@ -1202,8 +1287,8 @@ class PlayerActivity : BaseActivity() {
         return builder.build()
     }
 
-    private fun buildSubtitleConfiguration(source: SubtitleSource): MediaItem.SubtitleConfiguration {
-        val uri = prepareSubtitleUri(source)
+    private fun buildSubtitleConfiguration(source: SubtitleSource): MediaItem.SubtitleConfiguration? {
+        val uri = prepareSubtitleUri(source) ?: return null
         val builder = MediaItem.SubtitleConfiguration.Builder(uri)
             .setMimeType(source.mimeType)
             .setLabel(source.label)
@@ -1396,6 +1481,7 @@ class PlayerActivity : BaseActivity() {
         val activePlayer = player ?: return
         activePlayer.repeatMode = repeatMode
         activePlayer.shuffleModeEnabled = shuffleEnabled
+        requestNearbySubtitleCandidates()
         updateRepeatButton()
         updateShuffleButton()
     }
@@ -1415,6 +1501,7 @@ class PlayerActivity : BaseActivity() {
             else -> Player.REPEAT_MODE_OFF
         }
         player?.repeatMode = repeatMode
+        requestNearbySubtitleCandidates()
         persistPlaybackOptions()
         updateRepeatButton()
         showOverlay()
@@ -1423,6 +1510,7 @@ class PlayerActivity : BaseActivity() {
     private fun toggleShuffleMode() {
         shuffleEnabled = !shuffleEnabled
         player?.shuffleModeEnabled = shuffleEnabled
+        requestNearbySubtitleCandidates()
         persistPlaybackOptions()
         updateShuffleButton()
         showOverlay()
@@ -1529,10 +1617,33 @@ class PlayerActivity : BaseActivity() {
         if (scheme != "content" && scheme != "file") {
             return null
         }
-        val title = queryDisplayName(uri)
-            ?: uri.lastPathSegment?.substringAfterLast('/')
-            ?: ""
+        val title = uri.lastPathSegment?.substringAfterLast('/') ?: ""
         return PlaylistEntry(uri, title)
+    }
+
+    private fun requestExternalVideoTitle() {
+        if (intent.action != Intent.ACTION_VIEW || intent.data != videoUri) {
+            return
+        }
+        val uri = videoUri
+        val generation = subtitleResolveGeneration
+        mediaInfoResolver.execute {
+            if (playerActivityDestroyed || generation != subtitleResolveGeneration) {
+                return@execute
+            }
+            val title = queryDisplayName(uri) ?: return@execute
+            uiHandler.post {
+                if (playerActivityDestroyed || generation != subtitleResolveGeneration ||
+                    videoUri != uri
+                ) {
+                    return@post
+                }
+                playlistEntries = playlistEntries.map { entry ->
+                    if (entry.uri == uri) entry.copy(title = title) else entry
+                }
+                titleText.text = title
+            }
+        }
     }
 
     private data class PlaylistEntry(
@@ -1672,12 +1783,20 @@ class PlayerActivity : BaseActivity() {
         )
     }
 
-    private fun requestSubtitleCandidatesForPlaylist() {
+    private fun requestNearbySubtitleCandidates() {
         val generation = subtitleResolveGeneration
-        val currentIndex = playlistIndex
-        val orderedIndices = playlistEntries.indices.sortedBy { kotlin.math.abs(it - currentIndex) }
-        orderedIndices.forEach { index ->
-            val uri = playlistEntries[index].uri
+        // Discover on demand instead of scanning every video's folder at startup.
+        val indices = linkedSetOf(playlistIndex)
+        val activePlayer = player
+        if (activePlayer != null && activePlayer.mediaItemCount > 0) {
+            indices.add(activePlayer.nextMediaItemIndex)
+            indices.add(activePlayer.previousMediaItemIndex)
+        } else {
+            indices.add(playlistIndex + 1)
+            indices.add(playlistIndex - 1)
+        }
+        indices.forEach { index ->
+            val uri = playlistEntries.getOrNull(index)?.uri ?: return@forEach
             requestSubtitleCandidates(uri, index, generation)
         }
     }
@@ -1692,7 +1811,15 @@ class PlayerActivity : BaseActivity() {
         }
         pendingSubtitleRequests.add(requestKey)
         subtitleResolver.execute {
-            val candidates = loadSubtitleCandidates(uri)
+            if (generation != subtitleResolveGeneration || playerActivityDestroyed) {
+                return@execute
+            }
+            val candidates = try {
+                loadSubtitleCandidates(uri)
+            } catch (_: RuntimeException) {
+                // External providers may not expose MediaStore columns or may revoke access.
+                emptyList()
+            }
             uiHandler.post {
                 pendingSubtitleRequests.remove(requestKey)
                 if (generation != subtitleResolveGeneration || isDestroyed) {
@@ -1709,7 +1836,7 @@ class PlayerActivity : BaseActivity() {
                     autoSelectSubtitleIfAvailable()
                     subtitleDialogSelectValue?.text =
                         selectedSubtitle?.label ?: getString(R.string.subtitle_none)
-                    subtitleDialogEnableSwitch?.isChecked = subtitleEnabled
+                    updateSubtitleDialogEnabled(subtitleEnabled)
                     updateSubtitleButtonState()
                     attachResolvedSubtitleToCurrentItem()
                 } else {
@@ -1725,17 +1852,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun attachResolvedSubtitleToCurrentItem() {
         val source = selectedSubtitle ?: return
-        val activePlayer = player ?: return
-        val currentItem = activePlayer.currentMediaItem ?: return
-        val alreadyAttached = currentItem.localConfiguration
-            ?.subtitleConfigurations
-            ?.any { configuration ->
-                configuration.uri == source.uri &&
-                    configuration.language == source.nameMatch?.languageTag
-            } == true
-        if (!alreadyAttached) {
-            applySubtitleSelection(source)
-        }
+        applySubtitleSelection(source)
     }
 
     private fun attachResolvedSubtitleToQueuedItem(
@@ -1863,14 +1980,14 @@ class PlayerActivity : BaseActivity() {
 
     private fun queryDisplayName(uri: Uri): String? {
         val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
-        contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (!cursor.moveToFirst()) {
-                return null
+        return try {
+            contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                val nameCol = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameCol >= 0 && cursor.moveToFirst()) cursor.getString(nameCol) else null
             }
-            val nameCol = cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)
-            return cursor.getString(nameCol)
+        } catch (_: RuntimeException) {
+            null
         }
-        return null
     }
 
     private fun guessSubtitleMimeType(name: String): String {
@@ -1883,16 +2000,43 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
-    private fun prepareSubtitleUri(source: SubtitleSource): Uri {
+    private fun prepareSubtitleUri(source: SubtitleSource): Uri? {
         val encoding = preferredSubtitleEncoding
-        if (encoding.equals(ENCODING_UTF8, true)) {
+        if (encoding.equals(ENCODING_UTF8, true) || !isTextSubtitleMime(source.mimeType)) {
             return source.uri
         }
-        if (!isTextSubtitleMime(source.mimeType)) {
-            return source.uri
+        val key = SubtitleCacheKey(source.uri, encoding)
+        preparedSubtitleUris[key]?.let { return it }
+        val generation = subtitlePreparationGeneration
+        val requestKey = generation to key
+        if (!mediaInfoResolver.isShutdown && pendingSubtitleConversions.add(requestKey)) {
+            mediaInfoResolver.execute {
+                if (playerActivityDestroyed || generation != subtitlePreparationGeneration) {
+                    return@execute
+                }
+                val output = convertSubtitleToUtf8(source.uri, encoding, source.extension, generation)
+                if (playerActivityDestroyed || generation != subtitlePreparationGeneration) {
+                    output?.delete()
+                    return@execute
+                }
+                uiHandler.post {
+                    pendingSubtitleConversions.remove(requestKey)
+                    if (playerActivityDestroyed || generation != subtitlePreparationGeneration) {
+                        output?.delete()
+                        return@post
+                    }
+                    if (output != null) {
+                        subtitleCacheFiles.add(output)
+                    }
+                    preparedSubtitleUris[key] = output?.let(Uri::fromFile) ?: source.uri
+                    if (selectedSubtitle?.uri == source.uri && preferredSubtitleEncoding == encoding) {
+                        attachResolvedSubtitleToCurrentItem()
+                    }
+                }
+            }
         }
-        val converted = convertSubtitleToUtf8(source.uri, encoding, source.extension)
-        return converted ?: source.uri
+        // Video preparation continues while the optional text conversion runs off the UI thread.
+        return null
     }
 
     private fun isTextSubtitleMime(mimeType: String): Boolean {
@@ -1901,26 +2045,46 @@ class PlayerActivity : BaseActivity() {
             mimeType == MimeTypes.TEXT_SSA
     }
 
-    private fun convertSubtitleToUtf8(uri: Uri, encoding: String, extension: String): Uri? {
+    private fun convertSubtitleToUtf8(
+        uri: Uri,
+        encoding: String,
+        extension: String,
+        generation: Long
+    ): File? {
         val charset = runCatching { Charset.forName(encoding) }.getOrNull() ?: return null
+        var output: File? = null
         return try {
-            val text = contentResolver.openInputStream(uri)?.use { input ->
-                String(input.readBytes(), charset)
-            } ?: return null
-            val safeExt = if (extension.isNotEmpty()) extension else "srt"
-            val output = File(cacheDir, "subtitle_${System.currentTimeMillis()}.$safeExt")
-            output.writeText(text, Charsets.UTF_8)
-            subtitleCacheFile?.delete()
-            subtitleCacheFile = output
-            Uri.fromFile(output)
+            val safeExt = extension.takeIf { it.matches(Regex("[A-Za-z0-9]{1,8}")) } ?: "srt"
+            contentResolver.openInputStream(uri)?.bufferedReader(charset)?.use { reader ->
+                val target = File.createTempFile("subtitle_", ".$safeExt", cacheDir)
+                output = target
+                target.bufferedWriter(Charsets.UTF_8).use { writer ->
+                    val buffer = CharArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        if (Thread.currentThread().isInterrupted ||
+                            generation != subtitlePreparationGeneration
+                        ) {
+                            throw InterruptedIOException("Subtitle conversion cancelled")
+                        }
+                        val count = reader.read(buffer)
+                        if (count < 0) break
+                        writer.write(buffer, 0, count)
+                    }
+                }
+                target
+            }
         } catch (_: Exception) {
+            output?.delete()
             null
         }
     }
 
     private fun clearSubtitleCache() {
-        subtitleCacheFile?.delete()
-        subtitleCacheFile = null
+        subtitlePreparationGeneration++
+        subtitleCacheFiles.forEach { it.delete() }
+        subtitleCacheFiles.clear()
+        preparedSubtitleUris.clear()
+        pendingSubtitleConversions.clear()
     }
 
     private fun getSubtitleLanguageLabel(language: String?): String {
@@ -1946,6 +2110,8 @@ class PlayerActivity : BaseActivity() {
         val extension: String,
         val nameMatch: SubtitleNameMatch? = null
     )
+
+    private data class SubtitleCacheKey(val uri: Uri, val encoding: String)
 
     private data class VideoInfo(
         val displayName: String,

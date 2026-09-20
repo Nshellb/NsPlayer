@@ -42,9 +42,19 @@ class RecentPlaybackWidgetProvider : AppWidgetProvider() {
             if (appWidgetIds.isEmpty()) {
                 return
             }
-            appWidgetIds.forEach { appWidgetId ->
-                updateWidget(appContext, appWidgetManager, appWidgetId)
-            }
+            // Refresh localized labels without rebuilding each widget's adapter
+            // and PendingIntent whenever a playback snapshot changes.
+            val labels = RemoteViews(appContext.packageName, R.layout.widget_recent_playback)
+            labels.setTextViewText(
+                R.id.widgetRecentHeader,
+                appContext.getString(R.string.widget_recent_playback_title)
+            )
+            labels.setTextViewText(
+                R.id.widgetRecentEmpty,
+                appContext.getString(R.string.widget_recent_empty)
+            )
+            appWidgetManager.partiallyUpdateAppWidget(appWidgetIds, labels)
+            appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.widgetRecentList)
         }
 
         internal fun resolveMaxRows(context: Context, appWidgetId: Int): Int {
