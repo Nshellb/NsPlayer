@@ -22,7 +22,9 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.MobileAds
 import com.nshell.nsplayer.R
+import com.nshell.nsplayer.ads.AdsConsentManager
 import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
 import com.nshell.nsplayer.data.repository.VideoRepository
 import com.nshell.nsplayer.ui.base.BaseActivity
@@ -75,6 +77,8 @@ class MainActivity : BaseActivity() {
     internal val searchUiHandler = Handler(Looper.getMainLooper())
     internal val preferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
     private var bannerAdView: AdView? = null
+    private lateinit var adsConsentManager: AdsConsentManager
+    private var hasRequestedBannerAd = false
     private val playlistExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     internal val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     internal val searchRepository: VideoRepository = MediaStoreVideoRepository()
@@ -155,7 +159,13 @@ class MainActivity : BaseActivity() {
         settingsButton = findViewById(R.id.settingsButton)
         searchPreviewList = findViewById(R.id.searchPreviewList)
         bannerAdView = findViewById(R.id.mainBannerAdView)
-        bannerAdView?.loadAd(AdRequest.Builder().build())
+        bannerAdView?.visibility = View.GONE
+        adsConsentManager = AdsConsentManager(this)
+        adsConsentManager.gatherConsent(this) { canRequestAds ->
+            if (canRequestAds) {
+                initializeAdsAndLoadBanner()
+            }
+        }
 
         list = findViewById(R.id.list)
         refreshLayout = findViewById(R.id.refreshLayout)
@@ -267,6 +277,21 @@ class MainActivity : BaseActivity() {
         }
 
         updateHeaderState()
+    }
+
+    private fun initializeAdsAndLoadBanner() {
+        if (hasRequestedBannerAd || isFinishing || isDestroyed) {
+            return
+        }
+        hasRequestedBannerAd = true
+        MobileAds.initialize(this) {
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    bannerAdView?.visibility = View.VISIBLE
+                    bannerAdView?.loadAd(AdRequest.Builder().build())
+                }
+            }
+        }
     }
 
     override fun onResume() {

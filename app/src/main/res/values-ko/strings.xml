@@ -101,6 +101,8 @@
     <string name="advanced_settings_inquiry">문의 및 개선</string>
     <string name="advanced_settings_privacy_policy">개인정보 처리방침</string>
     <string name="privacy_policy_open_failed">개인정보 처리방침을 열 수 없습니다.</string>
+    <string name="advanced_settings_privacy_options">개인정보 보호 선택사항</string>
+    <string name="privacy_options_open_failed">개인정보 보호 선택사항을 열 수 없습니다.</string>
     <string name="advanced_settings_inquiry_title">문의 및 개선</string>
     <string name="inquiry_subject">문의 제목</string>
     <string name="inquiry_subject_hint">제목을 입력해 주세요.</string>

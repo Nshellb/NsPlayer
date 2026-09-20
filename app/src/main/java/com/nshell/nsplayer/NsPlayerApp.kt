@@ -6,7 +6,6 @@ import android.content.Context
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
-import com.google.android.gms.ads.MobileAds
 import com.nshell.nsplayer.data.settings.SettingsRepository
 import com.nshell.nsplayer.data.settings.ThemeMode
 
@@ -21,7 +20,6 @@ class NsPlayerApp : Application(), Application.ActivityLifecycleCallbacks {
         val themeMode = settings.themeMode
         applyTheme(themeMode)
         applyLanguage(settings.languageTag, recreate = false)
-        MobileAds.initialize(this)
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {

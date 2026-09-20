@@ -25,6 +25,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.NsPlayerApp
+import com.nshell.nsplayer.ads.AdsConsentManager
 import com.nshell.nsplayer.data.settings.ThemeMode
 import com.nshell.nsplayer.data.settings.SettingsState
 import com.nshell.nsplayer.data.settings.TranslationEngine
@@ -220,6 +221,28 @@ class AdvancedSettingsActivity : BaseActivity() {
         val privacyPolicyTitle = privacyPolicyRow.findViewById<TextView>(R.id.settingsRowTitle)
         privacyPolicyTitle.text = getString(R.string.advanced_settings_privacy_policy)
         privacyPolicyRow.setOnClickListener { openPrivacyPolicy() }
+
+        val privacyOptionsRow = findViewById<View>(R.id.advancedPrivacyOptionsRow)
+        val privacyOptionsDivider = findViewById<View>(R.id.advancedDividerPrivacyOptions)
+        val adsConsentManager = AdsConsentManager(this)
+        if (adsConsentManager.isPrivacyOptionsRequired) {
+            privacyOptionsRow.visibility = View.VISIBLE
+            privacyOptionsDivider.visibility = View.VISIBLE
+            val privacyOptionsTitle =
+                privacyOptionsRow.findViewById<TextView>(R.id.settingsRowTitle)
+            privacyOptionsTitle.text = getString(R.string.advanced_settings_privacy_options)
+            privacyOptionsRow.setOnClickListener {
+                adsConsentManager.showPrivacyOptions(this) { formError ->
+                    if (formError != null) {
+                        Toast.makeText(
+                            this,
+                            R.string.privacy_options_open_failed,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        }
 
         val visibleItemIds = listOf(
             R.id.visibleItemThumbnail,
