@@ -15,7 +15,7 @@ internal data class SubtitleNameMatch(
 )
 
 internal object SubtitleCandidatePolicy {
-    private val supportedExtensions = setOf("srt", "vtt", "ass", "ssa", "sub")
+    internal val supportedExtensions = setOf("srt", "vtt", "ass", "ssa", "sub")
     private val languageAliases = mapOf(
         "eng" to "en",
         "english" to "en",

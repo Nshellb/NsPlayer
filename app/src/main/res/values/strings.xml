@@ -53,6 +53,7 @@
     <string name="subtitle_select">자막 선택</string>
     <string name="subtitle_none">없음</string>
     <string name="subtitle_select_file">파일 선택...</string>
+    <string name="subtitle_load_failed">자막 파일을 읽지 못했습니다. 파일 접근 권한과 인코딩을 확인해 주세요.</string>
     <string name="subtitle_language">기본 언어</string>
     <string name="subtitle_encoding">인코딩</string>
     <string name="subtitle_encoding_utf8">UTF-8</string>

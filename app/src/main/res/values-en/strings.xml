@@ -53,6 +53,7 @@
     <string name="subtitle_select">Subtitle track</string>
     <string name="subtitle_none">None</string>
     <string name="subtitle_select_file">Choose file...</string>
+    <string name="subtitle_load_failed">Could not read the subtitle file. Check file access and encoding.</string>
     <string name="subtitle_language">Default language</string>
     <string name="subtitle_encoding">Encoding</string>
     <string name="subtitle_encoding_utf8">UTF-8</string>
