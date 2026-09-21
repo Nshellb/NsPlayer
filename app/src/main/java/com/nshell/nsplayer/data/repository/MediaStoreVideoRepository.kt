@@ -556,15 +556,27 @@ class MediaStoreVideoRepository : VideoRepository {
                 MediaStore.Files.FileColumns.DISPLAY_NAME,
                 MediaStore.Files.FileColumns.RELATIVE_PATH
             )
-            // Bound SQL arguments while avoiding a provider round trip per directory.
-            paths.chunked(SUBTITLE_QUERY_PATH_LIMIT).forEach { pathBatch ->
+            // Removable volumes can have providers that do not handle grouped
+            // file-name queries consistently. Keep their original path query.
+            val simplePathQuery = volume != MediaStore.VOLUME_EXTERNAL_PRIMARY
+            val pathBatches = if (simplePathQuery) paths.map { listOf(it) }
+                else paths.chunked(SUBTITLE_QUERY_PATH_LIMIT)
+            pathBatches.forEach { pathBatch ->
                 val pathPlaceholders = pathBatch.joinToString(",") { "?" }
                 val extensionSelection = allowedExt.joinToString(" OR ") {
                     "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
                 }
-                val selection = "${MediaStore.Files.FileColumns.RELATIVE_PATH} IN ($pathPlaceholders)" +
-                    " AND ($extensionSelection)"
-                val selectionArgs = (pathBatch + allowedExt.map { "%.$it" }).toTypedArray()
+                val selection = if (simplePathQuery) {
+                    "${MediaStore.Files.FileColumns.RELATIVE_PATH}=?"
+                } else {
+                    "${MediaStore.Files.FileColumns.RELATIVE_PATH} IN ($pathPlaceholders)" +
+                        " AND ($extensionSelection)"
+                }
+                val selectionArgs = if (simplePathQuery) {
+                    arrayOf(pathBatch.first())
+                } else {
+                    (pathBatch + allowedExt.map { "%.$it" }).toTypedArray()
+                }
                 resolver.query(
                     filesUri,
                     projection,
@@ -576,7 +588,8 @@ class MediaStoreVideoRepository : VideoRepository {
                     val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.RELATIVE_PATH)
                     while (cursor.moveToNext()) {
                         val name = cursor.getString(nameCol) ?: continue
-                        val path = cursor.getString(pathCol) ?: continue
+                        val path = cursor.getString(pathCol)
+                            ?: if (simplePathQuery) pathBatch.first() else continue
                         val ext = name.substringAfterLast('.', "").lowercase(Locale.US)
                         if (!allowedExt.contains(ext)) {
                             continue

@@ -176,30 +176,40 @@ class PlayerActivity : BaseActivity() {
             val generation = subtitleResolveGeneration
             val selectionRevision = ++subtitleSelectionRevision
             val targetVideo = videoUri
-            // The provider's display-name query can be slow. Attach the granted
-            // URI now, then correct the label and MIME type when the name arrives.
+            // A document URI can end in an opaque ID. Only attach immediately
+            // when its last segment actually identifies a subtitle format.
             val provisionalName = uri.lastPathSegment
                 ?.substringAfterLast('/')
                 ?.substringAfterLast(':')
                 ?: getString(R.string.subtitle_settings)
+            val provisionalExtension = provisionalName.substringAfterLast('.', "")
+                .lowercase(Locale.US)
+            val hasKnownFormat = provisionalExtension in setOf("srt", "sub", "vtt", "ass", "ssa")
             val provisional = SubtitleSource(
                 uri,
                 provisionalName,
                 guessSubtitleMimeType(provisionalName),
                 provisionalName.substringAfterLast('.', "")
             )
-            selectedSubtitle = provisional
-            subtitleSelectionMode = SubtitleSelectionMode.MANUAL
-            subtitleEnabled = true
-            persistSubtitleEnabled()
-            subtitleDialogSelectValue?.text = provisional.label
-            updateSubtitleDialogEnabled(true)
-            applySubtitleSelection(provisional)
+            if (hasKnownFormat) {
+                selectedSubtitle = provisional
+                subtitleSelectionMode = SubtitleSelectionMode.MANUAL
+                subtitleEnabled = true
+                persistSubtitleEnabled()
+                subtitleDialogSelectValue?.text = provisional.label
+                updateSubtitleDialogEnabled(true)
+                applySubtitleSelection(provisional)
+            } else {
+                subtitleEnabled = true
+                persistSubtitleEnabled()
+                updateSubtitleDialogEnabled(true)
+                subtitleDialogSelectValue?.text = getString(R.string.status_loading)
+            }
             mediaInfoResolver.execute {
                 if (playerActivityDestroyed || generation != subtitleResolveGeneration) {
                     return@execute
                 }
-                val name = queryDisplayName(uri) ?: return@execute
+                val name = queryDisplayName(uri) ?: provisionalName
                 val source = SubtitleSource(
                     uri, name, guessSubtitleMimeType(name), name.substringAfterLast('.', "")
                 )
@@ -209,9 +219,13 @@ class PlayerActivity : BaseActivity() {
                     ) {
                         return@post
                     }
-                    if (selectedSubtitle?.uri != uri) return@post
+                    if (hasKnownFormat && selectedSubtitle?.uri != uri) return@post
                     subtitleDialogSelectValue?.text = source.label
-                    if (selectedSubtitle?.mimeType != source.mimeType) {
+                    if (!hasKnownFormat || selectedSubtitle?.mimeType != source.mimeType) {
+                        subtitleSelectionMode = SubtitleSelectionMode.MANUAL
+                        subtitleEnabled = true
+                        persistSubtitleEnabled()
+                        updateSubtitleDialogEnabled(true)
                         applySubtitleSelection(source)
                     } else {
                         selectedSubtitle = source
@@ -1253,32 +1267,21 @@ class PlayerActivity : BaseActivity() {
         if (!subtitleEnabled) {
             return
         }
-        val configurations = if (source == null) {
-            emptyList()
-        } else {
-            listOf(buildSubtitleConfiguration(source) ?: return)
-        }
-        val currentItem = activePlayer.currentMediaItem ?: return
-        if (currentItem.localConfiguration?.subtitleConfigurations == configurations) {
-            return
-        }
+        if (source != null && buildSubtitleConfiguration(source) == null) return
         val position = activePlayer.currentPosition.coerceAtLeast(0L)
         val playWhenReady = activePlayer.playWhenReady
-        val playbackState = activePlayer.playbackState
         val index = activePlayer.currentMediaItemIndex
         val previousSeekParameters = activePlayer.seekParameters
-        // A subtitle change may recreate this source, but must not rebuild the entire playlist.
+        if (index < 0 || index >= playlistEntries.size) return
+        // Media3 can treat an item with the same video URI as update-compatible and keep its
+        // existing media source. Recreate the sources so a newly added external subtitle becomes
+        // an actual text track rather than only updated MediaItem metadata.
         replacingSubtitleItem = true
         try {
             activePlayer.setSeekParameters(SeekParameters.EXACT)
-            activePlayer.replaceMediaItem(
-                index,
-                currentItem.buildUpon().setSubtitleConfigurations(configurations).build()
-            )
-            activePlayer.seekTo(index, position)
-            if (playbackState != Player.STATE_IDLE && activePlayer.playbackState == Player.STATE_IDLE) {
-                activePlayer.prepare()
-            }
+            activePlayer.setMediaItems(buildMediaItems(), index, position)
+            activePlayer.prepare()
+            applySubtitleEnabled(subtitleEnabled)
             activePlayer.playWhenReady = playWhenReady
         } finally {
             activePlayer.setSeekParameters(previousSeekParameters)
@@ -1980,19 +1983,11 @@ class PlayerActivity : BaseActivity() {
             MediaStore.Files.FileColumns.DISPLAY_NAME
         )
         val candidates = mutableListOf<SubtitleSource>()
-        val nameColumn = MediaStore.Files.FileColumns.DISPLAY_NAME
-        val extensionFilter = SubtitleCandidatePolicy.supportedExtensions.joinToString(" OR ") {
-            "$nameColumn LIKE ?"
-        }
-        val selection = "${MediaStore.Files.FileColumns.RELATIVE_PATH}=? AND ($extensionFilter)"
-        val selectionArgs = (listOf(relativePath) + SubtitleCandidatePolicy.supportedExtensions.map {
-            "%.$it"
-        }).toTypedArray()
         val cursor = contentResolver.query(
             filesUri,
             projection,
-            selection,
-            selectionArgs,
+            "${MediaStore.Files.FileColumns.RELATIVE_PATH}=?",
+            arrayOf(relativePath),
             null
         ) ?: return null
         cursor.use {
