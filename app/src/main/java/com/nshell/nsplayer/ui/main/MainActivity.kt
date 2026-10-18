@@ -1,6 +1,5 @@
 package com.nshell.nsplayer.ui.main
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
@@ -66,8 +65,7 @@ class MainActivity : BaseActivity() {
     internal var initialSettingsApplied = false
     internal var pendingRestoredSelectionKeys: ArrayList<String>? = null
     internal var pendingListLayoutState: Parcelable? = null
-    internal var pendingRename: RenameRequest? = null
-    internal var pendingFolderRename: FolderRenameRequest? = null
+    internal lateinit var mediaItemController: MediaItemController
     internal var isSearchMode = false
     internal var isShowingSearchResults = false
     internal var committedSearchQuery = ""
@@ -93,43 +91,16 @@ class MainActivity : BaseActivity() {
         transferController.onDeletePermissionResult(result.resultCode)
     }
 
-    internal val renamePermissionLauncher = registerForActivityResult(
+    private val renamePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        val pending = pendingRename
-        pendingRename = null
-        if (pending == null) {
-            return@registerForActivityResult
-        }
-        if (result.resultCode == Activity.RESULT_OK) {
-            renameMediaItem(pending.item, pending.newName, allowPermissionRequest = false)
-        } else {
-            Toast.makeText(
-                this,
-                getString(R.string.rename_permission_denied),
-                Toast.LENGTH_SHORT
-            ).show()
-        }
+        mediaItemController.onRenamePermissionResult(result.resultCode)
     }
 
-    internal val folderRenameTreeLauncher = registerForActivityResult(
+    private val folderRenameTreeLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        val pending = pendingFolderRename
-        pendingFolderRename = null
-        if (pending == null) {
-            return@registerForActivityResult
-        }
-        if (uri == null) {
-            Toast.makeText(
-                this,
-                getString(R.string.rename_folder_pick_cancelled),
-                Toast.LENGTH_SHORT
-            ).show()
-            return@registerForActivityResult
-        }
-        preferences.edit().putString(KEY_FOLDER_RENAME_TREE_URI, uri.toString()).apply()
-        handleFolderRenameTree(uri, pending, showToasts = true)
+        mediaItemController.onFolderPicked(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -219,6 +190,12 @@ class MainActivity : BaseActivity() {
             applySettings(settings)
         }
 
+        mediaItemController = MediaItemController(
+            activity = this,
+            launchRenamePermission = { request -> renamePermissionLauncher.launch(request) },
+            launchFolderPicker = { folderRenameTreeLauncher.launch(null) },
+            onReloadRequested = { loadIfPermitted() }
+        )
         transferController = TransferController(
             activity = this,
             adapter = adapter,
@@ -433,7 +410,6 @@ class MainActivity : BaseActivity() {
     companion object {
         internal const val REQUEST_PERMISSION = 1001
         internal const val PREFS = "nsplayer_prefs"
-        internal const val KEY_FOLDER_RENAME_TREE_URI = "folder_rename_tree_uri"
         internal const val VOLUME_PREFIX = "volume:"
         private const val STATE_RETURNING_FROM_PLAYER = "state_returning_from_player"
         private const val STATE_SELECTION_KEYS = "state_selection_keys"
