@@ -190,4 +190,9 @@
     <string name="widget_recent_subtitle_recent">최근 재생</string>
     <string name="widget_recent_subtitle_resume">이어보기 %1$s</string>
     <string name="widget_recent_subtitle_resume_with_duration">이어보기 %1$s / %2$s</string>
+    <string name="playback_notification_channel">동영상 재생</string>
+    <string name="playback_notification_playing">재생 중</string>
+    <string name="playback_notification_paused">일시정지</string>
+    <string name="playback_notification_play">재생</string>
+    <string name="playback_notification_pause">일시정지</string>
 </resources>

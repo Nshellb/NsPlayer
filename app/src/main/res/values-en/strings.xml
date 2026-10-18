@@ -190,4 +190,9 @@
     <string name="widget_recent_subtitle_recent">Recently played</string>
     <string name="widget_recent_subtitle_resume">Resume %1$s</string>
     <string name="widget_recent_subtitle_resume_with_duration">Resume %1$s / %2$s</string>
+    <string name="playback_notification_channel">Video playback</string>
+    <string name="playback_notification_playing">Playing</string>
+    <string name="playback_notification_paused">Paused</string>
+    <string name="playback_notification_play">Play</string>
+    <string name="playback_notification_pause">Pause</string>
 </resources>

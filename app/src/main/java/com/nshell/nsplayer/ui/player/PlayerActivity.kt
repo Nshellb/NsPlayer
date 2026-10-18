@@ -1,5 +1,8 @@
 package com.nshell.nsplayer.ui.player
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.content.ContentUris
 import android.content.Context
@@ -38,6 +41,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -48,6 +53,8 @@ import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.ui.PlayerView
 import java.io.File
 import java.io.InterruptedIOException
@@ -58,6 +65,7 @@ import java.util.concurrent.Executors
 class PlayerActivity : BaseActivity() {
     private lateinit var playerView: PlayerView
     private var player: ExoPlayer? = null
+    private var mediaSession: MediaSession? = null
     private lateinit var overlayContainer: View
     private lateinit var topBar: View
     private lateinit var bottomBar: View
@@ -243,6 +251,7 @@ class PlayerActivity : BaseActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideSystemUi()
+        createPlaybackNotificationChannel()
 
         playerView = findViewById(R.id.playerView)
         overlayContainer = findViewById(R.id.overlayContainer)
@@ -433,6 +442,14 @@ class PlayerActivity : BaseActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPENED_FROM_NOTIFICATION, false)) {
+            when (intent.getStringExtra(EXTRA_MEDIA_CONTROL)) {
+                MEDIA_CONTROL_PLAY_PAUSE -> togglePlayback()
+                MEDIA_CONTROL_PREVIOUS -> playPrevious()
+                MEDIA_CONTROL_NEXT -> playNext()
+            }
+            return
+        }
         handlePlaybackIntent(intent)
     }
 
@@ -453,6 +470,11 @@ class PlayerActivity : BaseActivity() {
             .setLoadControl(loadControl)
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
+        mediaSession = player?.let { activePlayer ->
+            MediaSession.Builder(this, activePlayer)
+                .setSessionActivity(createPlayerPendingIntent())
+                .build()
+        }
         playerView.player = player
         player?.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -532,6 +554,7 @@ class PlayerActivity : BaseActivity() {
                 requestNearbySubtitleCandidates()
                 recordRecentPlayback(entry.uri, entry.title, 0L, 0L)
                 updateNavigationButtons()
+                updatePlaybackNotification()
             }
 
             override fun onPlayerErrorChanged(error: PlaybackException?) {
@@ -555,6 +578,7 @@ class PlayerActivity : BaseActivity() {
         applyPlaybackOptions()
         applyPlaybackSpeed()
         player?.play()
+        updatePlaybackNotification()
         updatePlayPauseIcon(true)
         updateNavigationButtons()
         updatePictureInPictureParams()
@@ -611,6 +635,7 @@ class PlayerActivity : BaseActivity() {
         applyPlaybackOptions()
         applyPlaybackSpeed()
         activePlayer.play()
+        updatePlaybackNotification()
         updatePlayPauseIcon(true)
         updatePlaybackUi()
         updatePictureInPictureParams()
@@ -662,9 +687,106 @@ class PlayerActivity : BaseActivity() {
 
     private fun releasePlayer() {
         seekController.cancel()
+        cancelPlaybackNotification()
         playerView.player = null
+        mediaSession?.release()
+        mediaSession = null
         player?.release()
         player = null
+    }
+
+    private fun createPlaybackNotificationChannel() {
+        val channel = NotificationChannel(
+            PLAYBACK_NOTIFICATION_CHANNEL_ID,
+            getString(R.string.playback_notification_channel),
+            NotificationManager.IMPORTANCE_LOW
+        )
+        channel.setShowBadge(false)
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    }
+
+    private fun updatePlaybackNotification() {
+        val activePlayer = player ?: return
+        val activeSession = mediaSession ?: return
+        val contentIntent = createPlayerPendingIntent()
+        val title = playlistEntries.getOrNull(playlistIndex)?.title
+            ?.takeIf { it.isNotBlank() }
+            ?: titleText.text?.toString()?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.app_name)
+        val stateText = getString(
+            if (activePlayer.isPlaying) {
+                R.string.playback_notification_playing
+            } else {
+                R.string.playback_notification_paused
+            }
+        )
+        val notification = NotificationCompat.Builder(this, PLAYBACK_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_video)
+            .setContentTitle(title)
+            .setContentText(stateText)
+            .setContentIntent(contentIntent)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(activePlayer.isPlaying)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .addAction(
+                R.drawable.ic_prev,
+                getString(R.string.playback_previous),
+                createPlayerPendingIntent(1, MEDIA_CONTROL_PREVIOUS)
+            )
+            .addAction(
+                if (activePlayer.isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
+                getString(
+                    if (activePlayer.isPlaying) {
+                        R.string.playback_notification_pause
+                    } else {
+                        R.string.playback_notification_play
+                    }
+                ),
+                createPlayerPendingIntent(2, MEDIA_CONTROL_PLAY_PAUSE)
+            )
+            .addAction(
+                R.drawable.ic_next,
+                getString(R.string.playback_next),
+                createPlayerPendingIntent(3, MEDIA_CONTROL_NEXT)
+            )
+            .setStyle(
+                MediaStyleNotificationHelper.MediaStyle(activeSession)
+                    .setShowActionsInCompactView(0, 1, 2)
+            )
+            .build()
+        try {
+            NotificationManagerCompat.from(this).notify(PLAYBACK_NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) {
+            // Notification permission can change while the player is active.
+        }
+    }
+
+    private fun createPlayerPendingIntent(
+        requestCode: Int = 0,
+        mediaControl: String? = null
+    ): PendingIntent {
+        val openPlayerIntent = Intent(intent).apply {
+            setClass(this@PlayerActivity, PlayerActivity::class.java)
+            putExtra(EXTRA_OPENED_FROM_NOTIFICATION, true)
+            if (mediaControl == null) {
+                removeExtra(EXTRA_MEDIA_CONTROL)
+            } else {
+                putExtra(EXTRA_MEDIA_CONTROL, mediaControl)
+            }
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        return PendingIntent.getActivity(
+            this,
+            requestCode,
+            openPlayerIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun cancelPlaybackNotification() {
+        NotificationManagerCompat.from(this).cancel(PLAYBACK_NOTIFICATION_ID)
     }
 
     private fun togglePlayback() {
@@ -1481,6 +1603,7 @@ class PlayerActivity : BaseActivity() {
         val seeking = seekController.isSeeking()
         updateLoadingSpinner((buffering || seeking) && error == null)
         updatePlayPauseIcon(activePlayer.isPlaying)
+        updatePlaybackNotification()
     }
 
     private fun loadPlaybackSpeed() {
@@ -1677,6 +1800,7 @@ class PlayerActivity : BaseActivity() {
                     if (entry.uri == uri) entry.copy(title = title) else entry
                 }
                 titleText.text = title
+                updatePlaybackNotification()
             }
         }
     }
@@ -2268,6 +2392,14 @@ class PlayerActivity : BaseActivity() {
         private const val RESUME_END_THRESHOLD_MS = 2_000L
         private const val RESUME_BACK_MS = 1_500L
         private const val RESUME_PROMPT_MS = 2_500L
+        private const val PLAYBACK_NOTIFICATION_CHANNEL_ID = "playback"
+        private const val PLAYBACK_NOTIFICATION_ID = 1001
+        private const val EXTRA_OPENED_FROM_NOTIFICATION =
+            "com.nshell.nsplayer.extra.OPENED_FROM_NOTIFICATION"
+        private const val EXTRA_MEDIA_CONTROL = "com.nshell.nsplayer.extra.MEDIA_CONTROL"
+        private const val MEDIA_CONTROL_PLAY_PAUSE = "play_pause"
+        private const val MEDIA_CONTROL_PREVIOUS = "previous"
+        private const val MEDIA_CONTROL_NEXT = "next"
         private val SUBTITLE_MIME_TYPES = arrayOf(
             "text/*",
             "application/x-subrip",
