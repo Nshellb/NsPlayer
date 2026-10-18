@@ -1,750 +1,171 @@
 package com.nshell.nsplayer.ui.main
 
-import android.content.Intent
-import android.content.SharedPreferences
-import android.net.Uri
-import android.os.Build
-import android.os.SystemClock
-import android.provider.DocumentsContract
-import android.provider.MediaStore
-import android.text.format.Formatter
 import android.app.Activity
-import android.webkit.MimeTypeMap
+import android.net.Uri
+import android.text.format.Formatter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.IntentSenderRequest
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.appcompat.app.AppCompatActivity
-import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.nshell.nsplayer.R
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.atomic.AtomicBoolean
+import com.nshell.nsplayer.data.transfer.ConflictChoice
+import com.nshell.nsplayer.data.transfer.ConflictDecision
+import com.nshell.nsplayer.data.transfer.TransferFile
+import com.nshell.nsplayer.data.transfer.TransferOperation
+import com.nshell.nsplayer.data.transfer.TransferProgress
+import com.nshell.nsplayer.data.transfer.TransferResult
 
+/** Activity-bound rendering only. TransferViewModel owns the operation and all pending responses. */
 class TransferController(
     private val activity: AppCompatActivity,
     private val adapter: VideoListAdapter,
-    private val preferences: SharedPreferences,
     private val launchCopyDestination: (Uri?) -> Unit,
     private val launchDeletePermission: (IntentSenderRequest) -> Unit,
     private val onReloadRequested: () -> Unit
-) {
-    private var pendingCopyItems: List<DisplayItem> = emptyList()
-    private var pendingOperation: TransferOperation = TransferOperation.COPY
-    private val deletePermissionLock = Any()
-    private var pendingDeleteLatch: CountDownLatch? = null
-    private var pendingDeleteGranted = false
+) : DefaultLifecycleObserver {
+    private val viewModel = ViewModelProvider(activity)[TransferViewModel::class.java]
+    private var progressUi: ProgressUi? = null
+    private var promptDialog: AlertDialog? = null
+    private var displayedPromptId: Long? = null
 
-    fun onCopyDestinationPicked(uri: Uri?) {
-        if (uri == null) {
-            pendingCopyItems = emptyList()
-            return
-        }
-        preferences.edit().putString(KEY_COPY_TREE_URI, uri.toString()).apply()
-        handleCopyToTree(uri, pendingCopyItems, pendingOperation)
+    init {
+        activity.lifecycle.addObserver(this)
+        viewModel.state.observe(activity) { render() }
     }
 
-    fun onDeletePermissionResult(resultCode: Int) {
-        synchronized(deletePermissionLock) {
-            pendingDeleteGranted = resultCode == Activity.RESULT_OK
-            pendingDeleteLatch?.countDown()
-        }
+    fun startCopySelected() = startSelected(TransferOperation.COPY)
+
+    fun startMoveSelected() = startSelected(TransferOperation.MOVE)
+
+    fun startDeleteSelected() = startSelected(TransferOperation.DELETE)
+
+    fun onCopyDestinationPicked(uri: Uri?) = viewModel.onDestinationPicked(uri)
+
+    fun onDeletePermissionResult(resultCode: Int) =
+        viewModel.onDeletePermissionResult(resultCode == Activity.RESULT_OK)
+
+    override fun onResume(owner: LifecycleOwner) {
+        render()
     }
 
-    fun startCopySelected() {
-        val selected = adapter.getSelectedItems()
-        if (selected.isEmpty()) {
-            Toast.makeText(activity, activity.getString(R.string.copy_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val videos = selected.filter { it.type == DisplayItem.Type.VIDEO && !it.contentUri.isNullOrEmpty() }
-        if (videos.isEmpty()) {
-            Toast.makeText(activity, activity.getString(R.string.copy_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        pendingCopyItems = videos
-        pendingOperation = TransferOperation.COPY
-        launchCopyDestination(buildInitialCopyTreeUri(videos))
+    override fun onDestroy(owner: LifecycleOwner) {
+        // Dismissing an old screen must not answer or cancel the retained operation.
+        dismissPrompt()
+        progressUi?.dialog?.dismiss()
+        progressUi = null
+        owner.lifecycle.removeObserver(this)
     }
 
-    fun startMoveSelected() {
-        val selected = adapter.getSelectedItems()
-        if (selected.isEmpty()) {
-            Toast.makeText(activity, activity.getString(R.string.copy_no_selection), Toast.LENGTH_SHORT).show()
+    private fun startSelected(operation: TransferOperation) {
+        val files = adapter.getSelectedItems().mapNotNull { item ->
+            val uri = item.contentUri?.takeIf { it.isNotEmpty() }
+            if (item.type == DisplayItem.Type.VIDEO && uri != null) TransferFile(uri, item.title) else null
+        }
+        if (files.isEmpty()) {
+            val message = if (operation == TransferOperation.DELETE) R.string.delete_no_selection
+                else R.string.copy_no_selection
+            Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
             return
         }
-        val videos = selected.filter { it.type == DisplayItem.Type.VIDEO && !it.contentUri.isNullOrEmpty() }
-        if (videos.isEmpty()) {
-            Toast.makeText(activity, activity.getString(R.string.copy_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        pendingCopyItems = videos
-        pendingOperation = TransferOperation.MOVE
-        launchCopyDestination(buildInitialCopyTreeUri(videos))
+        viewModel.begin(operation, files)
     }
 
-    fun startDeleteSelected() {
-        val selected = adapter.getSelectedItems()
-        if (selected.isEmpty()) {
-            Toast.makeText(activity, activity.getString(R.string.delete_no_selection), Toast.LENGTH_SHORT).show()
-            return
+    private fun render() {
+        if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
+            activity.isFinishing || activity.isDestroyed
+        ) return
+        val state = viewModel.currentState
+        if (displayedPromptId != state.prompt?.id) dismissPrompt()
+        if (state.progress != null && state.operation != null) {
+            val ui = progressUi ?: showProgress(state.operation).also { progressUi = it }
+            updateProgress(ui, state.progress, state.cancelling)
+        } else {
+            progressUi?.dialog?.dismiss()
+            progressUi = null
         }
-        val videos = selected.filter { it.type == DisplayItem.Type.VIDEO && !it.contentUri.isNullOrEmpty() }
-        if (videos.isEmpty()) {
-            Toast.makeText(activity, activity.getString(R.string.delete_no_selection), Toast.LENGTH_SHORT).show()
-            return
-        }
-        MaterialAlertDialogBuilder(activity)
-            .setTitle(activity.getString(R.string.delete_title))
-            .setMessage(activity.getString(R.string.delete_message, videos.size))
-            .setPositiveButton(R.string.delete_confirm) { _, _ ->
-                val cancelFlag = AtomicBoolean(false)
-                val progressUi = showCopyProgress(videos.size, 0L, cancelFlag, TransferOperation.DELETE)
-                Thread {
-                    var successCount = 0
-                    var failCount = 0
-                    var skipCount = 0
-                    var completed = 0
-                    var currentFileName = "-"
-                    for (item in videos) {
-                        if (cancelFlag.get()) {
-                            break
-                        }
-                        val uri = item.contentUri?.let { Uri.parse(it) }
-                        currentFileName = item.title
-                        if (uri == null) {
-                            failCount++
-                            completed++
-                            updateCopyProgress(
-                                progressUi,
-                                completed,
-                                videos.size,
-                                successCount,
-                                failCount,
-                                skipCount,
-                                0L,
-                                0L,
-                                currentFileName
-                            )
-                            continue
-                        }
-                        if (deleteSourceUri(uri)) {
-                            successCount++
-                        } else {
-                            failCount++
-                        }
-                        completed++
-                        updateCopyProgress(
-                            progressUi,
-                            completed,
-                            videos.size,
-                            successCount,
-                            failCount,
-                            skipCount,
-                            0L,
-                            0L,
-                            currentFileName
-                        )
+
+        when (val prompt = state.prompt) {
+            is TransferPrompt.Destination -> {
+                if (viewModel.claimDestination(prompt.id)) {
+                    try {
+                        launchCopyDestination(prompt.initialUri)
+                    } catch (_: RuntimeException) {
+                        viewModel.onDestinationPicked(null)
+                        Toast.makeText(activity, R.string.copy_failed, Toast.LENGTH_SHORT).show()
                     }
-                    activity.runOnUiThread {
-                        progressUi.dialog.dismiss()
-                        if (cancelFlag.get()) {
-                            Toast.makeText(
-                                activity,
-                                activity.getString(R.string.delete_cancelled),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            adapter.clearSelection()
-                            onReloadRequested()
-                            return@runOnUiThread
-                        }
-                        if (failCount == 0) {
-                            Toast.makeText(
-                                activity,
-                                activity.getString(R.string.delete_done, successCount),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else if (successCount == 0) {
-                            Toast.makeText(
-                                activity,
-                                activity.getString(R.string.delete_failed),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            Toast.makeText(
-                                activity,
-                                activity.getString(R.string.delete_partial, successCount, failCount),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                        adapter.clearSelection()
-                        onReloadRequested()
-                    }
-                }.start()
+                }
             }
-            .setNegativeButton(R.string.delete_cancel, null)
+            is TransferPrompt.DeletePermission -> {
+                if (viewModel.claimDeletePermission(prompt.id)) {
+                    try {
+                        launchDeletePermission(IntentSenderRequest.Builder(prompt.intentSender).build())
+                    } catch (_: RuntimeException) {
+                        viewModel.onDeletePermissionResult(false)
+                    }
+                }
+            }
+            is TransferPrompt.ConfirmDelete -> if (displayedPromptId != prompt.id) showDeleteConfirmation(prompt)
+            is TransferPrompt.Conflict -> if (displayedPromptId != prompt.id) showConflict(prompt)
+            null -> Unit
+        }
+
+        state.result?.let { result ->
+            if (viewModel.consumeResult(result)) {
+                Toast.makeText(activity, resultMessage(result), Toast.LENGTH_SHORT).show()
+                adapter.clearSelection()
+                onReloadRequested()
+            }
+        }
+    }
+
+    private fun showDeleteConfirmation(prompt: TransferPrompt.ConfirmDelete) {
+        displayedPromptId = prompt.id
+        promptDialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.delete_title)
+            .setMessage(activity.getString(R.string.delete_message, prompt.count))
+            .setPositiveButton(R.string.delete_confirm) { _, _ -> viewModel.confirmDelete(prompt.id, true) }
+            .setNegativeButton(R.string.delete_cancel) { _, _ -> viewModel.confirmDelete(prompt.id, false) }
+            .setOnCancelListener { viewModel.confirmDelete(prompt.id, false) }
             .show()
     }
 
-    private fun handleCopyToTree(treeUri: Uri, items: List<DisplayItem>, operation: TransferOperation) {
-        if (items.isEmpty()) {
-            return
+    private fun showConflict(prompt: TransferPrompt.Conflict) {
+        displayedPromptId = prompt.id
+        val content = activity.layoutInflater.inflate(R.layout.dialog_conflict_resolution, null)
+        val applyAll = content.findViewById<CheckBox>(R.id.applyToAllCheck)
+        applyAll.isChecked = prompt.applyAll
+        applyAll.setOnCheckedChangeListener { _, checked -> viewModel.setApplyAll(prompt.id, checked) }
+        fun answer(choice: ConflictChoice) {
+            viewModel.answerConflict(prompt.id, ConflictDecision(choice, applyAll.isChecked))
         }
-        try {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            activity.contentResolver.takePersistableUriPermission(treeUri, flags)
-        } catch (_: SecurityException) {
-        }
-        val root = DocumentFile.fromTreeUri(activity, treeUri)
-        if (root == null || !root.isDirectory) {
-            Toast.makeText(activity, activity.getString(R.string.copy_failed), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val cancelFlag = AtomicBoolean(false)
-        val conflictState = ConflictDecisionState()
-        val targetVolumePath = queryTreeVolumePath(treeUri)
-        val sizePlan = calculateCopySizePlan(items)
-        val progressUi = showCopyProgress(items.size, sizePlan.totalBytes, cancelFlag, operation)
-        Thread {
-            var successCount = 0
-            var failCount = 0
-            var skipCount = 0
-            var failMissingSourceUri = 0
-            var failOverwriteDelete = 0
-            var failCreateTarget = 0
-            var failCopyStream = 0
-            var completed = 0
-            var copiedBytes = 0L
-            var lastUpdate = 0L
-            var currentFileName = "-"
-            for (item in items) {
-                if (cancelFlag.get()) {
-                    break
-                }
-                val srcUri = item.contentUri?.let { Uri.parse(it) }
-                if (srcUri == null) {
-                    currentFileName = item.title
-                    failCount++
-                    failMissingSourceUri++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
-                }
-                val displayName = queryDisplayName(srcUri) ?: item.title
-                currentFileName = displayName
-                if (
-                    (operation == TransferOperation.MOVE || operation == TransferOperation.COPY) &&
-                    targetVolumePath != null &&
-                    isSameDirectoryMove(srcUri, targetVolumePath)
-                ) {
-                    skipCount++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
-                }
-                val mimeType = resolveMimeType(srcUri, displayName)
-                val resolution = resolveTargetFile(root, displayName, cancelFlag, conflictState)
-                if (resolution == null) {
-                    skipCount++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
-                }
-                if (resolution.overwriteDeleteFailed) {
-                    failOverwriteDelete++
-                }
-                val targetFile = resolution.reusableTarget
-                    ?: createTargetDocumentFile(root, mimeType, resolution.targetName)
-                if (targetFile == null) {
-                    failCount++
-                    failCreateTarget++
-                    completed++
-                    updateCopyProgress(
-                        progressUi,
-                        completed,
-                        items.size,
-                        successCount,
-                        failCount,
-                        skipCount,
-                        copiedBytes,
-                        sizePlan.totalBytes,
-                        currentFileName
-                    )
-                    continue
-                }
-                val copied = copyUriToDocument(srcUri, targetFile, cancelFlag) { bytesDelta ->
-                    if (bytesDelta > 0) {
-                        copiedBytes += bytesDelta
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - lastUpdate >= PROGRESS_UPDATE_MS) {
-                            lastUpdate = now
-                            updateCopyProgress(
-                                progressUi,
-                                completed,
-                                items.size,
-                                successCount,
-                                failCount,
-                                skipCount,
-                                copiedBytes,
-                                sizePlan.totalBytes,
-                                currentFileName
-                            )
-                        }
-                    }
-                }
-                if (copied) {
-                    successCount++
-                    if (operation == TransferOperation.MOVE && !cancelFlag.get()) {
-                        val deleted = deleteSourceUri(srcUri)
-                        if (!deleted) {
-                            if (successCount > 0) {
-                                successCount--
-                            }
-                            failCount++
-                        }
-                    }
-                } else {
-                    failCount++
-                    failCopyStream++
-                    deleteDocumentFile(targetFile)
-                }
-                completed++
-                updateCopyProgress(
-                    progressUi,
-                    completed,
-                    items.size,
-                    successCount,
-                    failCount,
-                    skipCount,
-                    copiedBytes,
-                    sizePlan.totalBytes,
-                    currentFileName
-                )
-            }
-            activity.runOnUiThread {
-                progressUi.dialog.dismiss()
-                if (cancelFlag.get()) {
-                    val cancelMessage = if (operation == TransferOperation.MOVE) {
-                        activity.getString(R.string.move_cancelled)
-                    } else {
-                        activity.getString(R.string.copy_cancelled)
-                    }
-                    Toast.makeText(activity, cancelMessage, Toast.LENGTH_SHORT).show()
-                    adapter.clearSelection()
-                    pendingCopyItems = emptyList()
-                    onReloadRequested()
-                    return@runOnUiThread
-                }
-                if (operation == TransferOperation.MOVE) {
-                    if (failCount == 0 && skipCount == 0) {
-                        Toast.makeText(
-                            activity,
-                            activity.getString(R.string.move_done, successCount),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else if (successCount == 0 && failCount > 0) {
-                        Toast.makeText(
-                            activity,
-                            activity.getString(R.string.move_failed),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            activity,
-                            activity.getString(R.string.move_partial, successCount, failCount, skipCount),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                } else {
-                    if (failCount == 0 && skipCount == 0) {
-                        Toast.makeText(
-                            activity,
-                            activity.getString(R.string.copy_done, successCount),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else if (successCount == 0 && failCount > 0) {
-                        Toast.makeText(
-                            activity,
-                            buildCopyFailedMessage(
-                                failMissingSourceUri,
-                                failOverwriteDelete,
-                                failCreateTarget,
-                                failCopyStream
-                            ),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            activity,
-                            activity.getString(R.string.copy_partial, successCount, failCount, skipCount),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-                adapter.clearSelection()
-                pendingCopyItems = emptyList()
-            }
-        }.start()
+        promptDialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.conflict_title)
+            .setMessage(activity.getString(R.string.conflict_message, prompt.fileName))
+            .setView(content)
+            .setPositiveButton(R.string.conflict_overwrite) { _, _ -> answer(ConflictChoice.OVERWRITE) }
+            .setNeutralButton(R.string.conflict_rename) { _, _ -> answer(ConflictChoice.RENAME) }
+            .setNegativeButton(R.string.conflict_skip) { _, _ -> answer(ConflictChoice.SKIP) }
+            .setOnCancelListener { viewModel.cancel() }
+            .show().also { it.setCanceledOnTouchOutside(false) }
     }
 
-    private fun queryDisplayName(uri: Uri): String? {
-        val projection = arrayOf(MediaStore.MediaColumns.DISPLAY_NAME)
-        activity.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-                val name = cursor.getString(nameCol)
-                if (!name.isNullOrEmpty()) {
-                    return name
-                }
-            }
-        }
-        return null
+    private fun dismissPrompt() {
+        promptDialog?.dismiss()
+        promptDialog = null
+        displayedPromptId = null
     }
 
-    private fun buildUniqueName(parent: DocumentFile, baseName: String): String {
-        if (parent.findFile(baseName) == null) {
-            return baseName
-        }
-        val dot = baseName.lastIndexOf('.')
-        val stem = if (dot > 0) baseName.substring(0, dot) else baseName
-        val ext = if (dot > 0) baseName.substring(dot) else ""
-        var index = 1
-        var candidate = "$stem ($index)$ext"
-        while (parent.findFile(candidate) != null) {
-            index++
-            candidate = "$stem ($index)$ext"
-        }
-        return candidate
-    }
-
-    private fun copyUriToDocument(
-        sourceUri: Uri,
-        target: DocumentFile,
-        cancelFlag: AtomicBoolean,
-        onBytesCopied: (Long) -> Unit
-    ): Boolean {
-        return try {
-            activity.contentResolver.openInputStream(sourceUri)?.use { input ->
-                openOutputStreamForOverwrite(target.uri)?.use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var read = input.read(buffer)
-                    while (read >= 0) {
-                        if (cancelFlag.get()) {
-                            return false
-                        }
-                        if (read > 0) {
-                            output.write(buffer, 0, read)
-                            onBytesCopied(read.toLong())
-                        }
-                        read = input.read(buffer)
-                    }
-                    output.flush()
-                    true
-                } ?: false
-            } ?: false
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun openOutputStreamForOverwrite(uri: Uri): java.io.OutputStream? {
-        val resolver = activity.contentResolver
-        val modes = arrayOf("rwt", "wt", "w")
-        for (mode in modes) {
-            try {
-                val output = resolver.openOutputStream(uri, mode)
-                if (output != null) {
-                    return output
-                }
-            } catch (_: Exception) {
-            }
-        }
-        return try {
-            resolver.openOutputStream(uri)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun deleteDocumentFile(file: DocumentFile): Boolean {
-        repeat(DELETE_RETRY_COUNT) { attempt ->
-            val deleted = try {
-                file.delete()
-            } catch (_: Exception) {
-                false
-            }
-            if (deleted) {
-                return true
-            }
-            if (attempt < DELETE_RETRY_COUNT - 1) {
-                try {
-                    Thread.sleep(DELETE_RETRY_DELAY_MS)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    return false
-                }
-            }
-        }
-        return false
-    }
-
-    private fun resolveMimeType(sourceUri: Uri, displayName: String): String {
-        val direct = activity.contentResolver.getType(sourceUri)
-        if (!direct.isNullOrEmpty() && !direct.endsWith("/*")) {
-            return direct
-        }
-        val byName = guessMimeTypeFromName(displayName)
-        if (!byName.isNullOrEmpty()) {
-            return byName
-        }
-        return if (!direct.isNullOrEmpty()) {
-            direct
-        } else {
-            "application/octet-stream"
-        }
-    }
-
-    private fun guessMimeTypeFromName(displayName: String): String? {
-        val ext = displayName.substringAfterLast('.', "").lowercase()
-        if (ext.isEmpty()) {
-            return null
-        }
-        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
-    }
-
-    private fun createTargetDocumentFile(
-        parent: DocumentFile,
-        mimeType: String,
-        targetName: String
-    ): DocumentFile? {
-        val nameParts = parseTargetName(targetName)
-        val knownUris = parent.listFiles().map { it.uri.toString() }.toHashSet()
-        repeat(CREATE_RETRY_COUNT) { attempt ->
-            tryCreateWithDocumentFile(parent, mimeType, nameParts)?.let { return it }
-            tryCreateWithDocumentsContract(parent, mimeType, nameParts)?.let { return it }
-            findCreatedCandidate(parent, nameParts, knownUris)?.let { return it }
-            if (attempt < CREATE_RETRY_COUNT - 1) {
-                try {
-                    Thread.sleep(CREATE_RETRY_DELAY_MS)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    return null
-                }
-            }
-        }
-        return null
-    }
-
-    private fun tryCreateWithDocumentFile(
-        parent: DocumentFile,
-        mimeType: String,
-        nameParts: TargetNameParts
-    ): DocumentFile? {
-        for (createName in createNameCandidates(nameParts)) {
-            try {
-                val created = parent.createFile(mimeType, createName)
-                if (created != null) {
-                    normalizeCreatedFileName(parent, created, nameParts)?.let { return it }
-                    return created
-                }
-            } catch (_: Exception) {
-            }
-        }
-        return null
-    }
-
-    private fun tryCreateWithDocumentsContract(
-        parent: DocumentFile,
-        mimeType: String,
-        nameParts: TargetNameParts
-    ): DocumentFile? {
-        val parentDocumentUri = buildParentDocumentUri(parent.uri)
-        for (createName in createNameCandidates(nameParts)) {
-            try {
-                val createdUri = DocumentsContract.createDocument(
-                    activity.contentResolver,
-                    parentDocumentUri,
-                    mimeType,
-                    createName
-                ) ?: continue
-                DocumentFile.fromSingleUri(activity, createdUri)?.let { created ->
-                    normalizeCreatedFileName(parent, created, nameParts)?.let { return it }
-                    return created
-                }
-            } catch (_: Exception) {
-            }
-        }
-        return null
-    }
-
-    private fun buildParentDocumentUri(parentUri: Uri): Uri {
-        return try {
-            val treeDocumentId = DocumentsContract.getTreeDocumentId(parentUri)
-            DocumentsContract.buildDocumentUriUsingTree(parentUri, treeDocumentId)
-        } catch (_: Exception) {
-            parentUri
-        }
-    }
-
-    private fun normalizeCreatedFileName(
-        parent: DocumentFile,
-        created: DocumentFile,
-        nameParts: TargetNameParts
-    ): DocumentFile? {
-        val createdName = created.name ?: return null
-        if (createdName == nameParts.targetName) {
-            return created
-        }
-        if (nameParts.hasExtension && createdName == nameParts.baseName) {
-            val renamed = try {
-                created.renameTo(nameParts.targetName)
-            } catch (_: Exception) {
-                false
-            }
-            if (renamed) {
-                parent.findFile(nameParts.targetName)?.let { return it }
-                return created
-            }
-        }
-        return null
-    }
-
-    private fun findCreatedCandidate(
-        parent: DocumentFile,
-        nameParts: TargetNameParts,
-        knownUris: Set<String>
-    ): DocumentFile? {
-        val expectedSuffix = ".${nameParts.extensionPart}"
-        val prefix = "${nameParts.baseName} ("
-        for (child in parent.listFiles()) {
-            if (knownUris.contains(child.uri.toString())) {
-                continue
-            }
-            val childName = child.name ?: continue
-            if (childName == nameParts.targetName) {
-                return child
-            }
-            if (!nameParts.hasExtension && childName == nameParts.baseName) {
-                return child
-            }
-            if (childName.startsWith(prefix) && childName.endsWith(expectedSuffix)) {
-                return child
-            }
-        }
-        return null
-    }
-
-    private fun createNameCandidates(nameParts: TargetNameParts): List<String> {
-        val candidates = LinkedHashSet<String>()
-        if (nameParts.hasExtension && nameParts.baseName.isNotEmpty()) {
-            candidates.add(nameParts.baseName)
-        }
-        candidates.add(nameParts.targetName)
-
-        val fallbackBase = stripTrailingCounter(nameParts.baseName)
-        val extSuffix = if (nameParts.hasExtension && nameParts.extensionPart.isNotEmpty()) {
-            ".${nameParts.extensionPart}"
-        } else {
-            ""
-        }
-        for (index in 1..CREATE_NAME_SUFFIX_MAX) {
-            candidates.add("$fallbackBase ($index)$extSuffix")
-        }
-        candidates.add("$fallbackBase (${System.currentTimeMillis()})$extSuffix")
-        return candidates.toList()
-    }
-
-    private fun stripTrailingCounter(baseName: String): String {
-        if (baseName.isEmpty()) {
-            return "copied_file"
-        }
-        val pattern = Regex("""^(.*)\s\(\d+\)$""")
-        val match = pattern.matchEntire(baseName)
-        val stripped = match?.groupValues?.getOrNull(1)?.trim()
-        return if (!stripped.isNullOrEmpty()) {
-            stripped
-        } else {
-            baseName
-        }
-    }
-
-    private fun parseTargetName(targetName: String): TargetNameParts {
-        var safeTarget = targetName.trim().replace('/', '_').replace('\\', '_')
-        if (safeTarget.isEmpty()) {
-            safeTarget = "copied_file"
-        }
-        val dotIndex = safeTarget.lastIndexOf('.')
-        if (dotIndex <= 0 || dotIndex == safeTarget.lastIndex) {
-            return TargetNameParts(
-                targetName = safeTarget,
-                baseName = safeTarget,
-                extensionPart = "",
-                hasExtension = false
-            )
-        }
-        return TargetNameParts(
-            targetName = safeTarget,
-            baseName = safeTarget.substring(0, dotIndex),
-            extensionPart = safeTarget.substring(dotIndex + 1),
-            hasExtension = true
-        )
-    }
-
-    private data class TargetNameParts(
-        val targetName: String,
-        val baseName: String,
-        val extensionPart: String,
-        val hasExtension: Boolean
-    )
-
-    private fun buildCopyFailedMessage(
-        missingSource: Int,
-        overwriteDelete: Int,
-        createTarget: Int,
-        copyStream: Int
-    ): String {
-        val base = activity.getString(R.string.copy_failed)
-        return "$base [src:$missingSource, ovw:$overwriteDelete, create:$createTarget, stream:$copyStream]"
-    }
-
-    private data class CopySizePlan(
-        val totalBytes: Long
-    )
-
-    private data class CopyProgressUi(
+    private data class ProgressUi(
         val dialog: BottomSheetDialog,
         val progressBar: ProgressBar,
         val countText: TextView,
@@ -754,368 +175,87 @@ class TransferController(
         val cancelButton: Button
     )
 
-    private fun showCopyProgress(
-        total: Int,
-        totalBytes: Long,
-        cancelFlag: AtomicBoolean,
-        operation: TransferOperation
-    ): CopyProgressUi {
+    private fun showProgress(operation: TransferOperation): ProgressUi {
         val content = activity.layoutInflater.inflate(R.layout.bottom_sheet_copy_progress, null)
-        val progressBar = content.findViewById<ProgressBar>(R.id.copyProgressBar)
-        val titleText = content.findViewById<TextView>(R.id.copyProgressTitle)
-        val countText = content.findViewById<TextView>(R.id.copyProgressCount)
-        val sizeText = content.findViewById<TextView>(R.id.copyProgressSize)
-        val percentText = content.findViewById<TextView>(R.id.copyProgressPercent)
-        val fileText = content.findViewById<TextView>(R.id.copyProgressFile)
-        val cancelButton = content.findViewById<Button>(R.id.copyProgressCancel)
-        titleText.text = when (operation) {
-            TransferOperation.MOVE -> activity.getString(R.string.move_progress_title)
-            TransferOperation.DELETE -> activity.getString(R.string.delete_progress_title)
-            else -> activity.getString(R.string.copy_progress_title)
-        }
-        if (totalBytes > 0L) {
-            progressBar.isIndeterminate = false
-            progressBar.max = PROGRESS_MAX
-            progressBar.progress = 0
-        } else {
-            progressBar.isIndeterminate = true
-        }
-        countText.text = activity.getString(R.string.copy_progress_count, 0, total, 0, 0, 0)
-        sizeText.text = activity.getString(
-            R.string.copy_progress_size,
-            Formatter.formatFileSize(activity, 0L),
-            Formatter.formatFileSize(activity, totalBytes.coerceAtLeast(0L))
-        )
-        percentText.text = activity.getString(R.string.copy_progress_percent, 0)
-        fileText.text = activity.getString(R.string.copy_progress_file, "-")
+        content.findViewById<TextView>(R.id.copyProgressTitle).setText(when (operation) {
+            TransferOperation.MOVE -> R.string.move_progress_title
+            TransferOperation.DELETE -> R.string.delete_progress_title
+            TransferOperation.COPY -> R.string.copy_progress_title
+        })
         val dialog = BottomSheetDialog(activity)
         dialog.setContentView(content)
         dialog.setCancelable(false)
+        val ui = ProgressUi(
+            dialog,
+            content.findViewById(R.id.copyProgressBar),
+            content.findViewById(R.id.copyProgressCount),
+            content.findViewById(R.id.copyProgressSize),
+            content.findViewById(R.id.copyProgressPercent),
+            content.findViewById(R.id.copyProgressFile),
+            content.findViewById(R.id.copyProgressCancel)
+        )
+        ui.cancelButton.setOnClickListener { viewModel.cancel() }
         dialog.show()
-        cancelButton.setOnClickListener {
-            cancelFlag.set(true)
-            cancelButton.isEnabled = false
-            cancelButton.text = activity.getString(R.string.copy_cancelling)
-        }
-        return CopyProgressUi(dialog, progressBar, countText, sizeText, percentText, fileText, cancelButton)
+        return ui
     }
 
-    private fun updateCopyProgress(
-        ui: CopyProgressUi,
-        completed: Int,
-        total: Int,
-        successCount: Int,
-        failCount: Int,
-        skipCount: Int,
-        copiedBytes: Long,
-        totalBytes: Long,
-        currentFileName: String
-    ) {
-        activity.runOnUiThread {
-            if (!ui.progressBar.isIndeterminate && totalBytes > 0L) {
-                val percent = (copiedBytes.coerceAtLeast(0L) * PROGRESS_MAX / totalBytes.coerceAtLeast(1L))
-                ui.progressBar.progress = percent.coerceIn(0L, PROGRESS_MAX.toLong()).toInt()
-            }
-            ui.countText.text = activity.getString(
-                R.string.copy_progress_count,
-                completed.coerceAtMost(total),
-                total,
-                successCount,
-                failCount,
-                skipCount
-            )
-            ui.sizeText.text = activity.getString(
-                R.string.copy_progress_size,
-                Formatter.formatFileSize(activity, copiedBytes.coerceAtLeast(0L)),
-                Formatter.formatFileSize(activity, totalBytes.coerceAtLeast(0L))
-            )
-            val percent = if (totalBytes > 0L) {
-                (copiedBytes.coerceAtLeast(0L) * 100 / totalBytes.coerceAtLeast(1L)).toInt()
-            } else {
-                0
-            }
-            ui.percentText.text = activity.getString(R.string.copy_progress_percent, percent.coerceIn(0, 100))
-            ui.fileText.text = activity.getString(R.string.copy_progress_file, currentFileName)
-        }
-    }
-
-    private fun calculateCopySizePlan(items: List<DisplayItem>): CopySizePlan {
-        var total = 0L
-        for (item in items) {
-            val srcUri = item.contentUri?.let { Uri.parse(it) } ?: continue
-            val size = querySizeBytes(srcUri)
-            if (size > 0) {
-                total += size
-            }
-        }
-        return CopySizePlan(total)
-    }
-
-    private fun querySizeBytes(uri: Uri): Long {
-        val projection = arrayOf(MediaStore.MediaColumns.SIZE)
-        activity.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-                return cursor.getLong(sizeCol)
-            }
-        }
-        return 0L
-    }
-
-    private fun deleteSourceUri(uri: Uri): Boolean {
-        try {
-            return activity.contentResolver.delete(uri, null, null) > 0
-        } catch (e: SecurityException) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                e is android.app.RecoverableSecurityException
-            ) {
-                val granted = requestDeletePermission(e)
-                if (granted) {
-                    return try {
-                        activity.contentResolver.delete(uri, null, null) > 0
-                    } catch (retry: Exception) {
-                        false
-                    }
-                }
-            }
-            return false
-        } catch (e: Exception) {
-            return false
-        }
-    }
-
-    private fun requestDeletePermission(
-        e: android.app.RecoverableSecurityException
-    ): Boolean {
-        val latch = CountDownLatch(1)
-        synchronized(deletePermissionLock) {
-            pendingDeleteGranted = false
-            pendingDeleteLatch = latch
-        }
-        activity.runOnUiThread {
-            val intentSender = e.userAction.actionIntent.intentSender
-            val request = IntentSenderRequest.Builder(intentSender).build()
-            launchDeletePermission(request)
-        }
-        latch.await()
-        synchronized(deletePermissionLock) {
-            pendingDeleteLatch = null
-            return pendingDeleteGranted
-        }
-    }
-
-    private data class ConflictResolution(
-        val targetName: String,
-        val reusableTarget: DocumentFile? = null,
-        val overwriteDeleteFailed: Boolean = false
-    )
-
-    private data class ConflictDecision(
-        val choice: ConflictChoice,
-        val applyAll: Boolean
-    )
-
-    private data class ConflictDecisionState(
-        var applyAllChoice: ConflictChoice? = null
-    )
-
-    private enum class ConflictChoice {
-        OVERWRITE,
-        RENAME,
-        SKIP
-    }
-
-    private fun resolveTargetFile(
-        parent: DocumentFile,
-        displayName: String,
-        cancelFlag: AtomicBoolean,
-        conflictState: ConflictDecisionState
-    ): ConflictResolution? {
-        val existing = parent.findFile(displayName)
-        if (existing == null) {
-            return ConflictResolution(displayName)
-        }
-        if (cancelFlag.get()) {
-            return null
-        }
-        val choice = conflictState.applyAllChoice ?: run {
-            val decision = promptConflictChoice(displayName)
-            if (decision.applyAll) {
-                conflictState.applyAllChoice = decision.choice
-            }
-            decision.choice
-        }
-        return when (choice) {
-            ConflictChoice.OVERWRITE -> {
-                val deleted = deleteDocumentFile(existing)
-                if (deleted) {
-                    ConflictResolution(displayName)
-                } else {
-                    // Some providers are slow or report delete failure; overwrite in-place instead.
-                    ConflictResolution(
-                        targetName = displayName,
-                        reusableTarget = existing,
-                        overwriteDeleteFailed = true
-                    )
-                }
-            }
-            ConflictChoice.RENAME -> ConflictResolution(buildUniqueName(parent, displayName))
-            ConflictChoice.SKIP -> null
-        }
-    }
-
-    private fun promptConflictChoice(fileName: String): ConflictDecision {
-        val latch = CountDownLatch(1)
-        var choice = ConflictChoice.SKIP
-        var applyAll = false
-        activity.runOnUiThread {
-            val content = activity.layoutInflater.inflate(R.layout.dialog_conflict_resolution, null)
-            val applyAllCheck = content.findViewById<android.widget.CheckBox>(R.id.applyToAllCheck)
-            MaterialAlertDialogBuilder(activity)
-                .setTitle(activity.getString(R.string.conflict_title))
-                .setMessage(activity.getString(R.string.conflict_message, fileName))
-                .setView(content)
-                .setCancelable(false)
-                .setPositiveButton(R.string.conflict_overwrite) { _, _ ->
-                    choice = ConflictChoice.OVERWRITE
-                    applyAll = applyAllCheck.isChecked
-                    latch.countDown()
-                }
-                .setNeutralButton(R.string.conflict_rename) { _, _ ->
-                    choice = ConflictChoice.RENAME
-                    applyAll = applyAllCheck.isChecked
-                    latch.countDown()
-                }
-                .setNegativeButton(R.string.conflict_skip) { _, _ ->
-                    choice = ConflictChoice.SKIP
-                    applyAll = applyAllCheck.isChecked
-                    latch.countDown()
-                }
-                .show()
-        }
-        latch.await()
-        return ConflictDecision(choice, applyAll)
-    }
-
-    private data class VolumePath(
-        val volumeName: String,
-        val relativePath: String
-    )
-
-    private fun buildInitialCopyTreeUri(items: List<DisplayItem>): Uri? {
-        val source = items.firstOrNull() ?: return null
-        val srcUri = source.contentUri?.let { Uri.parse(it) } ?: return null
-        val volumePath = queryVolumePath(srcUri) ?: return null
-        val documentVolume = resolveDocumentVolumeName(volumePath.volumeName) ?: return null
-        val relative = normalizeRelativeDocPath(volumePath.relativePath)
-        val docId = if (relative.isEmpty()) "$documentVolume:" else "$documentVolume:$relative"
-        return try {
-            DocumentsContract.buildTreeDocumentUri(EXTERNAL_STORAGE_AUTHORITY, docId)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun queryVolumePath(uri: Uri): VolumePath? {
-        val projection = arrayOf(
-            MediaStore.MediaColumns.RELATIVE_PATH,
-            MediaStore.MediaColumns.VOLUME_NAME
+    private fun updateProgress(ui: ProgressUi, progress: TransferProgress, cancelling: Boolean) {
+        val fraction = if (progress.totalBytes > 0) {
+            (progress.copiedBytes.toDouble() / progress.totalBytes).coerceIn(0.0, 1.0)
+        } else 0.0
+        ui.progressBar.isIndeterminate = progress.totalBytes <= 0L
+        ui.progressBar.max = 1000
+        ui.progressBar.progress = (fraction * 1000).toInt()
+        ui.countText.text = activity.getString(
+            R.string.copy_progress_count,
+            progress.completed.coerceAtMost(progress.total), progress.total,
+            progress.successCount, progress.failCount, progress.skipCount
         )
-        activity.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val relCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
-                val volumeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.VOLUME_NAME)
-                val relative = cursor.getString(relCol) ?: ""
-                val volume = cursor.getString(volumeCol)
-                return VolumePath(resolveVolumeName(volume), relative)
-            }
-        }
-        return null
-    }
-
-    private fun queryTreeVolumePath(treeUri: Uri): VolumePath? {
-        val documentId = try {
-            DocumentsContract.getTreeDocumentId(treeUri)
-        } catch (_: Exception) {
-            try {
-                DocumentsContract.getDocumentId(treeUri)
-            } catch (_: Exception) {
-                null
-            }
-        } ?: return null
-        val separatorIndex = documentId.indexOf(':')
-        val treeVolumeName = if (separatorIndex >= 0) {
-            documentId.substring(0, separatorIndex)
-        } else {
-            documentId
-        }
-        val treeRelativePath = if (separatorIndex >= 0 && separatorIndex + 1 < documentId.length) {
-            documentId.substring(separatorIndex + 1)
-        } else {
-            ""
-        }
-        return VolumePath(
-            volumeName = resolveMediaStoreVolumeName(treeVolumeName),
-            relativePath = treeRelativePath
+        ui.sizeText.text = activity.getString(
+            R.string.copy_progress_size,
+            Formatter.formatFileSize(activity, progress.copiedBytes.coerceAtLeast(0L)),
+            Formatter.formatFileSize(activity, progress.totalBytes.coerceAtLeast(0L))
         )
+        ui.percentText.text = activity.getString(R.string.copy_progress_percent, (fraction * 100).toInt())
+        ui.fileText.text = activity.getString(R.string.copy_progress_file, progress.currentFileName)
+        ui.cancelButton.isEnabled = !cancelling
+        ui.cancelButton.setText(if (cancelling) R.string.copy_cancelling else R.string.copy_cancel)
     }
 
-    private fun isSameDirectoryMove(sourceUri: Uri, targetDirectory: VolumePath): Boolean {
-        val sourcePath = queryVolumePath(sourceUri) ?: return false
-        if (!sourcePath.volumeName.equals(targetDirectory.volumeName, ignoreCase = true)) {
-            return false
+    private fun resultMessage(result: TransferResult): String {
+        val progress = result.progress
+        val cancelled = when (result.operation) {
+            TransferOperation.COPY -> R.string.copy_cancelled
+            TransferOperation.MOVE -> R.string.move_cancelled
+            TransferOperation.DELETE -> R.string.delete_cancelled
         }
-        val sourceRelative = normalizeRelativeDocPath(sourcePath.relativePath)
-        val targetRelative = normalizeRelativeDocPath(targetDirectory.relativePath)
-        return sourceRelative.equals(targetRelative, ignoreCase = true)
-    }
-
-    private fun resolveMediaStoreVolumeName(documentVolumeName: String): String {
-        return when (documentVolumeName.lowercase()) {
-            "primary" -> MediaStore.VOLUME_EXTERNAL_PRIMARY
-            else -> documentVolumeName
+        val failed = when (result.operation) {
+            TransferOperation.COPY -> R.string.copy_failed
+            TransferOperation.MOVE -> R.string.move_failed
+            TransferOperation.DELETE -> R.string.delete_failed
         }
-    }
-
-    private fun resolveVolumeName(volumeName: String?): String {
-        return if (volumeName.isNullOrEmpty()) {
-            MediaStore.VOLUME_EXTERNAL_PRIMARY
-        } else {
-            volumeName
+        if (result.cancelled) return activity.getString(cancelled)
+        if (result.failed || progress.successCount == 0 && progress.failCount > 0) {
+            return activity.getString(failed)
         }
-    }
-
-    private fun resolveDocumentVolumeName(volumeName: String): String? {
-        return when (volumeName) {
-            MediaStore.VOLUME_EXTERNAL_PRIMARY, MediaStore.VOLUME_EXTERNAL -> "primary"
-            else -> volumeName
+        if (progress.failCount == 0 && progress.skipCount == 0) {
+            val done = when (result.operation) {
+                TransferOperation.COPY -> R.string.copy_done
+                TransferOperation.MOVE -> R.string.move_done
+                TransferOperation.DELETE -> R.string.delete_done
+            }
+            return activity.getString(done, progress.successCount)
         }
-    }
-
-    private fun normalizeRelativeDocPath(path: String?): String {
-        if (path.isNullOrEmpty()) {
-            return ""
+        return when (result.operation) {
+            TransferOperation.COPY -> activity.getString(
+                R.string.copy_partial, progress.successCount, progress.failCount, progress.skipCount
+            )
+            TransferOperation.MOVE -> activity.getString(
+                R.string.move_partial, progress.successCount, progress.failCount, progress.skipCount
+            )
+            TransferOperation.DELETE -> activity.getString(
+                R.string.delete_partial, progress.successCount, progress.failCount
+            )
         }
-        var normalized = path.replace('\\', '/').trim()
-        normalized = normalized.trim('/')
-        return normalized
-    }
-
-    companion object {
-        private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
-        private const val KEY_COPY_TREE_URI = "copy_tree_uri"
-        private const val PROGRESS_MAX = 1000
-        private const val PROGRESS_UPDATE_MS = 200L
-        private const val DELETE_RETRY_COUNT = 3
-        private const val DELETE_RETRY_DELAY_MS = 80L
-        private const val CREATE_RETRY_COUNT = 3
-        private const val CREATE_RETRY_DELAY_MS = 120L
-        private const val CREATE_NAME_SUFFIX_MAX = 12
-    }
-
-    private enum class TransferOperation {
-        COPY,
-        MOVE,
-        DELETE
     }
 }

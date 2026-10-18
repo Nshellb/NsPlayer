@@ -222,10 +222,12 @@ class MainActivity : BaseActivity() {
         transferController = TransferController(
             activity = this,
             adapter = adapter,
-            preferences = getSharedPreferences(PREFS, MODE_PRIVATE),
             launchCopyDestination = { uri -> copyDestinationLauncher.launch(uri) },
             launchDeletePermission = { request -> deletePermissionLauncher.launch(request) },
-            onReloadRequested = { loadIfPermitted() }
+            onReloadRequested = {
+                pendingRestoredSelectionKeys = null
+                loadIfPermitted()
+            }
         )
 
         selectionMoveButton.setOnClickListener { transferController.startMoveSelected() }
