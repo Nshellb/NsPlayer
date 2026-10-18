@@ -3,6 +3,9 @@ package com.nshell.nsplayer.ui.main
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelStore
+import com.nshell.nsplayer.data.repository.VideoQueryOptions
+import com.nshell.nsplayer.data.repository.VideoSortDirection
+import com.nshell.nsplayer.data.repository.VideoSortField
 import java.io.IOException
 import java.util.ArrayDeque
 import java.util.concurrent.Delayed
@@ -22,8 +25,13 @@ class VideoSearchViewModelTest {
     private val worker = ManualWorker()
     private val deliveries = ArrayDeque<Runnable>()
     private val main = Executor { deliveries.addLast(it) }
-    private val options = VideoSearchOptions(VideoSortMode.TITLE, VideoSortOrder.ASC, false, true, emptySet())
-    private val calls = mutableListOf<Triple<String, VideoSearchOptions, Int?>>()
+    private val options = VideoQueryOptions(
+        VideoSortField.TITLE,
+        VideoSortDirection.ASCENDING,
+        respectNoMedia = false,
+        folderIds = null
+    )
+    private val calls = mutableListOf<Triple<String, VideoQueryOptions, Int?>>()
     private var failure: Exception? = null
     private val loader = VideoSearchLoader { query, filters, limit ->
         calls.add(Triple(query, filters, limit))
@@ -206,7 +214,7 @@ class VideoSearchViewModelTest {
         val vm = active()
         vm.submit("query")
         worker.runAll()
-        val filtered = options.copy(searchFoldersUseAll = false, searchFolders = setOf("Movies/"))
+        val filtered = options.copy(folderIds = setOf("Movies/"))
         vm.configure(filtered, true)
         deliveries.removeFirst().run()
         assertNull(vm.currentState.results)

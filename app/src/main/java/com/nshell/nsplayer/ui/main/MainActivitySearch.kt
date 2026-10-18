@@ -48,10 +48,7 @@ internal fun MainActivity.setupSearchUi() {
 internal fun MainActivity.syncSearchConfiguration() {
     val current = browserState
     searchViewModel.configure(
-        VideoSearchOptions(
-            current.sortMode, current.sortOrder, current.nomediaEnabled,
-            current.searchFoldersUseAll, current.searchFolders
-        ),
+        current.toQueryOptions(),
         hasVideoPermission()
     )
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import com.nshell.nsplayer.data.repository.VideoQueryOptions
 import java.util.concurrent.Executor
 import java.util.concurrent.Future
 import java.util.concurrent.RejectedExecutionException
@@ -21,17 +22,17 @@ class VideoSearchViewModel(
     private val state = MutableLiveData(restoreState())
     private val generation = AtomicLong()
     private var pending: Future<*>? = null
-    private var options: VideoSearchOptions? = null
+    private var options: VideoQueryOptions? = null
     private var permitted = false
     @Volatile private var cleared = false
 
     val currentState: VideoSearchState get() = requireNotNull(state.value)
     fun getState(): LiveData<VideoSearchState> = state
 
-    fun configure(options: VideoSearchOptions, permitted: Boolean) {
+    fun configure(options: VideoQueryOptions, permitted: Boolean) {
         if (cleared || (this.options == options && this.permitted == permitted)) return
         invalidate()
-        this.options = options.copy(searchFolders = options.searchFolders.toSet())
+        this.options = options.copy(folderIds = options.folderIds?.toSet())
         this.permitted = permitted
         // Results from another filter or a revoked permission cannot remain visible.
         publish(currentState.copy(results = null, previews = emptyList()))

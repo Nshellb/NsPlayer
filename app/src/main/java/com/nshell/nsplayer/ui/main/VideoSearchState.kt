@@ -1,5 +1,7 @@
 package com.nshell.nsplayer.ui.main
 
+import com.nshell.nsplayer.data.repository.VideoQueryOptions
+
 data class VideoSearchState(
     val active: Boolean = false,
     val input: String = "",
@@ -12,14 +14,6 @@ data class VideoSearchState(
     val showingResults: Boolean get() = active && committedQuery != null
 }
 
-data class VideoSearchOptions(
-    val sortMode: VideoSortMode,
-    val sortOrder: VideoSortOrder,
-    val nomediaEnabled: Boolean,
-    val searchFoldersUseAll: Boolean,
-    val searchFolders: Set<String>
-)
-
 fun interface VideoSearchLoader {
-    fun search(query: String, options: VideoSearchOptions, limit: Int?): List<DisplayItem>
+    fun search(query: String, options: VideoQueryOptions, limit: Int?): List<DisplayItem>
 }

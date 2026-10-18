@@ -5,129 +5,78 @@ import android.content.ContentUris
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import com.nshell.nsplayer.NsPlayerApp
-import com.nshell.nsplayer.R
-import com.nshell.nsplayer.ui.main.DisplayItem
-import com.nshell.nsplayer.ui.main.VideoMode
-import com.nshell.nsplayer.ui.main.VideoSortMode
-import com.nshell.nsplayer.ui.main.VideoSortOrder
 import java.util.Locale
 
 class MediaStoreVideoRepository : VideoRepository {
-    override fun load(
-        mode: VideoMode,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
-        resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>
-    ): List<DisplayItem> {
-        val entries = queryVideos(resolver)
-        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
-        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
-        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
-        return when (mode) {
-            VideoMode.VIDEOS -> {
-                sortEntries(filtered, sortMode, sortOrder)
-                buildVideoItems(attachSubtitleInfo(filtered, resolver))
+    override fun load(query: VideoQuery, resolver: ContentResolver): List<VideoListItem> {
+        val source = query.source
+        val rawEntries = when (source) {
+            is VideoQuerySource.Browse -> queryVideos(resolver)
+            is VideoQuerySource.Folder -> queryVideosInternal(source.bucketId, resolver)
+            is VideoQuerySource.Hierarchy -> queryHierarchyEntries(source.path, resolver)
+            is VideoQuerySource.HierarchyVideos -> queryHierarchyEntries(source.path, resolver)
+            is VideoQuerySource.Search -> {
+                val text = source.text.trim()
+                if (text.isEmpty()) return emptyList()
+                queryVideosInternal(
+                    bucketId = null,
+                    resolver = resolver,
+                    selectionOverride = "${MediaStore.Video.Media.DISPLAY_NAME} LIKE ? ESCAPE '\\'",
+                    selectionArgsOverride = arrayOf(buildLikePattern(text))
+                )
             }
-            VideoMode.HIERARCHY -> buildVolumeRootItems(filtered)
-            VideoMode.FOLDERS -> buildFolderItems(filtered)
+        }
+        val filtered = filterEntries(rawEntries, query.options, resolver)
+        return when (source) {
+            is VideoQuerySource.Browse -> when (source.mode) {
+                VideoBrowseMode.VIDEOS -> buildSortedVideoItems(filtered.entries, query.options, resolver)
+                VideoBrowseMode.HIERARCHY -> buildVolumeRootItems(filtered.entries)
+                VideoBrowseMode.FOLDERS -> buildFolderItems(filtered.entries)
+            }
+            is VideoQuerySource.Folder,
+            is VideoQuerySource.HierarchyVideos ->
+                buildSortedVideoItems(filtered.entries, query.options, resolver)
+            is VideoQuerySource.Hierarchy -> buildHierarchyLevelItems(
+                filtered.entries,
+                source.path,
+                query.options,
+                filtered.noMediaIndex,
+                resolver
+            )
+            is VideoQuerySource.Search -> {
+                sortEntries(filtered.entries, query.options)
+                val visible = source.limit?.takeIf { it > 0 }
+                    ?.let(filtered.entries::take)
+                    ?: filtered.entries
+                buildVideoItems(attachSubtitleInfo(visible, resolver))
+            }
         }
     }
 
-    override fun loadVideosInFolder(
-        bucketId: String,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
-        resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>
-    ): List<DisplayItem> {
-        val entries = queryVideosInternal(bucketId, resolver)
-        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
-        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
-        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
-        sortEntries(filtered, sortMode, sortOrder)
-        val enriched = attachSubtitleInfo(filtered, resolver)
-        return buildVideoItems(enriched)
+    private fun queryHierarchyEntries(path: String, resolver: ContentResolver): MutableList<VideoEntry> =
+        if (path.isEmpty()) queryVideos(resolver) else queryVideosForHierarchy(path, resolver)
+
+    private fun buildSortedVideoItems(
+        entries: MutableList<VideoEntry>,
+        options: VideoQueryOptions,
+        resolver: ContentResolver
+    ): List<VideoListItem> {
+        sortEntries(entries, options)
+        return buildVideoItems(attachSubtitleInfo(entries, resolver))
     }
 
-    override fun loadHierarchy(
-        path: String,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
-        resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>
-    ): List<DisplayItem> {
-        val entries = if (path.isEmpty()) {
-            queryVideos(resolver)
-        } else {
-            queryVideosForHierarchy(path, resolver)
-        }
-        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
-        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
-        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
-        return buildHierarchyLevelItems(filtered, path, sortMode, sortOrder, noMediaIndex, resolver)
-    }
-
-    override fun searchVideos(
-        query: String,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
-        resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>,
-        limit: Int?
-    ): List<DisplayItem> {
-        val trimmed = query.trim()
-        if (trimmed.isEmpty()) {
-            return emptyList()
-        }
-        val pattern = buildLikePattern(trimmed)
-        val entries = queryVideosInternal(
-            bucketId = null,
-            resolver = resolver,
-            selectionOverride = "${MediaStore.Video.Media.DISPLAY_NAME} LIKE ? ESCAPE '\\'",
-            selectionArgsOverride = arrayOf(pattern)
+    private fun filterEntries(
+        entries: MutableList<VideoEntry>,
+        options: VideoQueryOptions,
+        resolver: ContentResolver
+    ): FilteredEntries {
+        val folderFiltered = VideoFolderFilter.apply(entries, options.folderIds, VideoEntry::bucketId)
+        val noMediaIndex = buildNoMediaIndexForEntries(
+            folderFiltered,
+            resolver,
+            options.respectNoMedia
         )
-        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
-        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
-        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
-        sortEntries(filtered, sortMode, sortOrder)
-        val visibleEntries = if (limit != null && limit > 0) {
-            filtered.take(limit)
-        } else {
-            filtered
-        }
-        return buildVideoItems(attachSubtitleInfo(visibleEntries, resolver))
-    }
-
-    fun loadVideosUnderHierarchy(
-        path: String,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
-        resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>
-    ): List<DisplayItem> {
-        val entries = if (path.isEmpty()) {
-            queryVideos(resolver)
-        } else {
-            queryVideosForHierarchy(path, resolver)
-        }
-        val searchFiltered = applySearchFolderFilter(entries, searchFoldersUseAll, searchFolders)
-        val noMediaIndex = buildNoMediaIndexForEntries(searchFiltered, resolver, nomediaEnabled)
-        val filtered = applyNoMediaFilter(searchFiltered, noMediaIndex)
-        sortEntries(filtered, sortMode, sortOrder)
-        val enriched = attachSubtitleInfo(filtered, resolver)
-        return buildVideoItems(enriched)
+        return FilteredEntries(applyNoMediaFilter(folderFiltered, noMediaIndex), noMediaIndex)
     }
 
     private fun queryVideos(resolver: ContentResolver): MutableList<VideoEntry> =
@@ -242,11 +191,11 @@ class MediaStoreVideoRepository : VideoRepository {
         )
     }
 
-    private fun buildVideoItems(entries: List<VideoEntry>): List<DisplayItem> {
+    private fun buildVideoItems(entries: List<VideoEntry>): List<VideoListItem> {
         return entries.map { entry -> buildVideoItem(entry) }
     }
 
-    private fun buildFolderItems(entries: List<VideoEntry>): List<DisplayItem> {
+    private fun buildFolderItems(entries: List<VideoEntry>): List<VideoListItem> {
         val folders = mutableMapOf<String, FolderAggregate>()
         for (entry in entries) {
             val key = entry.bucketId ?: safe(entry.bucketName, "Unknown")
@@ -256,12 +205,11 @@ class MediaStoreVideoRepository : VideoRepository {
         }
         val sorted = folders.values.sortedBy { it.name.lowercase(Locale.US) }
         return sorted.map { aggregate ->
-            DisplayItem(
-                DisplayItem.Type.FOLDER,
-                aggregate.name,
-                formatCountSubtitle(aggregate.count, 0),
-                0,
-                aggregate.bucketId
+            VideoListItem(
+                type = VideoListItem.Type.FOLDER,
+                name = aggregate.name,
+                id = aggregate.bucketId,
+                videoCount = aggregate.count
             )
         }
     }
@@ -269,11 +217,10 @@ class MediaStoreVideoRepository : VideoRepository {
     private fun buildHierarchyLevelItems(
         entries: List<VideoEntry>,
         currentPath: String,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
+        options: VideoQueryOptions,
         noMediaIndex: Map<String, Set<String>>,
         resolver: ContentResolver
-    ): List<DisplayItem> {
+    ): List<VideoListItem> {
         if (currentPath.isEmpty()) {
             return buildVolumeRootItems(entries)
         }
@@ -328,22 +275,22 @@ class MediaStoreVideoRepository : VideoRepository {
         }
 
         val sortedFolders = folders.values.sortedBy { it.name.lowercase(Locale.US) }
-        val items = mutableListOf<DisplayItem>()
+        val items = mutableListOf<VideoListItem>()
         for (aggregate in sortedFolders) {
             if (isBlockedBucket(aggregate.bucketId, noMediaIndex)) {
                 continue
             }
             items.add(
-                DisplayItem(
-                    DisplayItem.Type.HIERARCHY,
-                    aggregate.name,
-                    formatCountSubtitle(aggregate.directVideoCount, aggregate.directSubfolders.size),
-                    0,
-                    aggregate.bucketId
+                VideoListItem(
+                    type = VideoListItem.Type.HIERARCHY,
+                    name = aggregate.name,
+                    id = aggregate.bucketId,
+                    videoCount = aggregate.directVideoCount,
+                    folderCount = aggregate.directSubfolders.size
                 )
             )
         }
-        sortEntries(videos, sortMode, sortOrder)
+        sortEntries(videos, options)
         // Folder rows only need counts. Query subtitle badges for visible videos.
         for (entry in attachSubtitleInfo(videos, resolver)) {
             items.add(buildVideoItem(entry))
@@ -363,6 +310,11 @@ class MediaStoreVideoRepository : VideoRepository {
         val directSubfolders: MutableSet<String> = mutableSetOf()
     )
 
+    private data class FilteredEntries(
+        val entries: MutableList<VideoEntry>,
+        val noMediaIndex: Map<String, Set<String>>
+    )
+
     private data class VideoEntry(
         val id: Long,
         val displayName: String?,
@@ -379,12 +331,10 @@ class MediaStoreVideoRepository : VideoRepository {
         val hasSubtitle: Boolean = false
     )
 
-    private fun buildVideoItem(entry: VideoEntry): DisplayItem {
-        return DisplayItem(
-            DisplayItem.Type.VIDEO,
-            safe(entry.displayName, "Unknown"),
-            null,
-            0,
+    private fun buildVideoItem(entry: VideoEntry): VideoListItem {
+        return VideoListItem(
+            type = VideoListItem.Type.VIDEO,
+            name = entry.displayName,
             durationMs = entry.duration,
             width = entry.width,
             height = entry.height,
@@ -440,23 +390,6 @@ class MediaStoreVideoRepository : VideoRepository {
             val volume = resolveVolumeName(entry.volumeName)
             val blocked = noMediaIndex[volume] ?: return@filterNot false
             blocked.any { relative.startsWith(it) }
-        }.toMutableList()
-    }
-
-    private fun applySearchFolderFilter(
-        entries: MutableList<VideoEntry>,
-        useAll: Boolean,
-        searchFolders: Set<String>
-    ): MutableList<VideoEntry> {
-        if (useAll) {
-            return entries
-        }
-        if (searchFolders.isEmpty() || entries.isEmpty()) {
-            return mutableListOf()
-        }
-        return entries.filter { entry ->
-            val bucket = entry.bucketId ?: return@filter false
-            searchFolders.contains(bucket)
         }.toMutableList()
     }
 
@@ -644,13 +577,12 @@ class MediaStoreVideoRepository : VideoRepository {
         return bucket
     }
 
-    private fun buildVolumeRootItems(entries: List<VideoEntry>): List<DisplayItem> {
+    private fun buildVolumeRootItems(entries: List<VideoEntry>): List<VideoListItem> {
         val volumes = mutableMapOf<String, FolderAggregate>()
         for (entry in entries) {
             val volumeName = resolveVolumeName(entry.volumeName)
-            val label = buildVolumeLabel(volumeName)
             val key = "$VOLUME_PREFIX$volumeName/"
-            val aggregate = volumes.getOrPut(key) { FolderAggregate(key, label) }
+            val aggregate = volumes.getOrPut(key) { FolderAggregate(key, volumeName) }
             val path = entryPath(entry)
             val remainder = path
             if (remainder.isEmpty()) {
@@ -665,12 +597,13 @@ class MediaStoreVideoRepository : VideoRepository {
         }
         val sorted = volumes.values.sortedBy { it.name.lowercase(Locale.US) }
         return sorted.map { aggregate ->
-            DisplayItem(
-                DisplayItem.Type.HIERARCHY,
-                aggregate.name,
-                formatCountSubtitle(aggregate.directVideoCount, aggregate.directSubfolders.size),
-                0,
-                aggregate.bucketId
+            VideoListItem(
+                type = VideoListItem.Type.HIERARCHY,
+                name = null,
+                id = aggregate.bucketId,
+                videoCount = aggregate.directVideoCount,
+                folderCount = aggregate.directSubfolders.size,
+                volumeName = aggregate.name
             )
         }
     }
@@ -702,38 +635,23 @@ class MediaStoreVideoRepository : VideoRepository {
         }
     }
 
-    private fun buildVolumeLabel(volumeName: String): String {
-        val context = NsPlayerApp.appContext()
-        return if (volumeName == MediaStore.VOLUME_EXTERNAL_PRIMARY) {
-            context?.getString(R.string.storage_internal) ?: "내장 스토리지"
-        } else {
-            context?.getString(R.string.storage_external_format, volumeName)
-                ?: "외장 스토리지 ($volumeName)"
-        }
-    }
-
     private fun sortEntries(
         entries: MutableList<VideoEntry>,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder
+        options: VideoQueryOptions
     ) {
         if (entries.size < 2) {
             return
         }
-        val comparator = when (sortMode) {
-            VideoSortMode.TITLE -> compareBy<VideoEntry> { safe(it.displayName, "").lowercase(Locale.US) }
-            VideoSortMode.LENGTH -> compareBy { it.duration }
-            VideoSortMode.MODIFIED -> compareBy { it.modifiedSeconds }
+        val comparator = when (options.sortField) {
+            VideoSortField.TITLE -> compareBy<VideoEntry> { safe(it.displayName, "").lowercase(Locale.US) }
+            VideoSortField.LENGTH -> compareBy { it.duration }
+            VideoSortField.MODIFIED -> compareBy { it.modifiedSeconds }
         }
-        if (sortOrder == VideoSortOrder.ASC) {
+        if (options.sortDirection == VideoSortDirection.ASCENDING) {
             entries.sortWith(comparator)
         } else {
             entries.sortWith(comparator.reversed())
         }
-    }
-
-    private fun formatCountSubtitle(videoCount: Int, folderCount: Int): String {
-        return String.format(Locale.US, "Video %d, Folder %d", videoCount, folderCount)
     }
 
     companion object {

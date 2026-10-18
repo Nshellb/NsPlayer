@@ -5,11 +5,11 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
-import com.nshell.nsplayer.data.cache.VideoListCache
 import com.nshell.nsplayer.data.cache.VideoListCacheStore
+import com.nshell.nsplayer.data.repository.VideoListItem
+import com.nshell.nsplayer.data.repository.VideoQuery
+import com.nshell.nsplayer.data.repository.VideoQuerySource
 import com.nshell.nsplayer.data.repository.VideoRepository
-import java.security.MessageDigest
-import java.util.Locale
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.RejectedExecutionException
@@ -23,13 +23,14 @@ class VideoBrowserViewModel(
     private val cacheExecutor: ExecutorService,
     private val prefetchExecutor: ExecutorService,
     private val cache: VideoListCacheStore?,
+    private val itemMapper: (List<VideoListItem>) -> List<DisplayItem>,
     private val mainExecutor: Executor
 ) : ViewModel() {
     private val loadState = MutableLiveData(VideoBrowserLoadState())
     private val state = MutableLiveData(restoreNavigationState())
     private val requestCounter = AtomicLong(0L)
     private var freshResultRequestId = 0L
-    private var lastLoadKey: VideoListCache.Key? = null
+    private var lastQuery: VideoQuery? = null
     @Volatile private var cleared = false
 
     fun getLoadState(): LiveData<VideoBrowserLoadState> = loadState
@@ -92,133 +93,20 @@ class VideoBrowserViewModel(
     }
 
     fun load(
-        mode: VideoMode,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
+        query: VideoQuery,
         resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>,
         useCache: Boolean = false,
         showRefreshing: Boolean = false
     ) {
-        val searchFoldersHash = buildSearchFoldersHash(searchFoldersUseAll, searchFolders)
-        val key = VideoListCache.Key(
-            queryType = VideoListCache.QueryType.MODE,
-            mode = mode,
-            sortMode = sortMode,
-            sortOrder = sortOrder,
-            nomediaEnabled = nomediaEnabled,
-            searchFoldersHash = searchFoldersHash,
-            bucketId = null,
-            hierarchyPath = null
-        )
         loadInternal(
-            key,
-            useCache,
-            showRefreshing,
-            loader = {
-                repository.load(
-                    mode,
-                    sortMode,
-                    sortOrder,
-                    resolver,
-                    nomediaEnabled,
-                    searchFoldersUseAll,
-                    searchFolders
-                )
-            }
-        )
-    }
-
-    fun loadFolderVideos(
-        bucketId: String,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
-        resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>,
-        useCache: Boolean = false,
-        showRefreshing: Boolean = false
-    ) {
-        val searchFoldersHash = buildSearchFoldersHash(searchFoldersUseAll, searchFolders)
-        val key = VideoListCache.Key(
-            queryType = VideoListCache.QueryType.FOLDER,
-            mode = VideoMode.FOLDERS,
-            sortMode = sortMode,
-            sortOrder = sortOrder,
-            nomediaEnabled = nomediaEnabled,
-            searchFoldersHash = searchFoldersHash,
-            bucketId = bucketId,
-            hierarchyPath = null
-        )
-        loadInternal(
-            key,
-            useCache,
-            showRefreshing,
-            loader = {
-                repository.loadVideosInFolder(
-                    bucketId,
-                    sortMode,
-                    sortOrder,
-                    resolver,
-                    nomediaEnabled,
-                    searchFoldersUseAll,
-                    searchFolders
-                )
-            }
-        )
-    }
-
-    fun loadHierarchy(
-        path: String,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
-        resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>,
-        useCache: Boolean = false,
-        showRefreshing: Boolean = false
-    ) {
-        val searchFoldersHash = buildSearchFoldersHash(searchFoldersUseAll, searchFolders)
-        val key = VideoListCache.Key(
-            queryType = VideoListCache.QueryType.HIERARCHY,
-            mode = VideoMode.HIERARCHY,
-            sortMode = sortMode,
-            sortOrder = sortOrder,
-            nomediaEnabled = nomediaEnabled,
-            searchFoldersHash = searchFoldersHash,
-            bucketId = null,
-            hierarchyPath = path
-        )
-        loadInternal(
-            key,
-            useCache,
-            showRefreshing,
-            loader = {
-                repository.loadHierarchy(
-                    path,
-                    sortMode,
-                    sortOrder,
-                    resolver,
-                    nomediaEnabled,
-                    searchFoldersUseAll,
-                    searchFolders
-                )
-            },
-            prefetch = { items, requestId ->
-                prefetchHierarchyChildren(
-                    items,
-                    sortMode,
-                    sortOrder,
-                    resolver,
-                    nomediaEnabled,
-                    searchFoldersUseAll,
-                    searchFolders,
-                    requestId
-                )
+            query = query,
+            useCache = useCache,
+            showRefreshing = showRefreshing,
+            loader = { repository.load(query, resolver) },
+            prefetch = if (query.source is VideoQuerySource.Hierarchy) {
+                { items, requestId -> prefetchHierarchyChildren(items, query, resolver, requestId) }
+            } else {
+                null
             }
         )
     }
@@ -229,17 +117,17 @@ class VideoBrowserViewModel(
     }
 
     internal fun loadInternal(
-        key: VideoListCache.Key,
+        query: VideoQuery,
         useCache: Boolean,
         showRefreshing: Boolean,
-        loader: () -> List<DisplayItem>,
-        prefetch: ((List<DisplayItem>, Long) -> Unit)? = null
+        loader: () -> List<VideoListItem>,
+        prefetch: ((List<VideoListItem>, Long) -> Unit)? = null
     ) {
         if (cleared) return
         val requestId = requestCounter.incrementAndGet()
         freshResultRequestId = 0L
-        val retainedItems = currentLoadState.items.takeIf { lastLoadKey == key }
-        lastLoadKey = key
+        val retainedItems = currentLoadState.items.takeIf { lastQuery == query }
+        lastQuery = query
         loadState.value = VideoBrowserLoadState(
             items = retainedItems,
             phase = if (showRefreshing) VideoBrowserLoadState.Phase.REFRESHING
@@ -248,14 +136,14 @@ class VideoBrowserViewModel(
         if (useCache && cache != null) {
             submitOptional(cacheExecutor) {
                 if (!isCurrent(requestId)) return@submitOptional
-                val cached = cache.read(key) ?: return@submitOptional
+                val cached = cache.read(query) ?: return@submitOptional
                 mainExecutor.execute {
                     // A late cache may provide fallback data after failure, but must not
                     // clear the error or replace a successful fresh response.
                     if (isCurrent(requestId) && freshResultRequestId != requestId &&
                         currentLoadState.items == null
                     ) {
-                        loadState.value = currentLoadState.copy(items = cached)
+                        loadState.value = currentLoadState.copy(items = itemMapper(cached))
                     }
                 }
             }
@@ -274,12 +162,12 @@ class VideoBrowserViewModel(
                     if (isCurrent(requestId)) {
                         freshResultRequestId = requestId
                         loadState.value = VideoBrowserLoadState(
-                            items = result,
+                            items = itemMapper(result),
                             phase = VideoBrowserLoadState.Phase.READY
                         )
                         // Disk writes and prefetch are optional and cannot fail this load.
                         submitOptional(cacheExecutor) {
-                            if (isCurrent(requestId)) cache?.write(key, result)
+                            if (isCurrent(requestId)) cache?.write(query, result)
                         }
                     }
                 }
@@ -331,18 +219,14 @@ class VideoBrowserViewModel(
     }
 
     private fun prefetchHierarchyChildren(
-        items: List<DisplayItem>,
-        sortMode: VideoSortMode,
-        sortOrder: VideoSortOrder,
+        items: List<VideoListItem>,
+        parentQuery: VideoQuery,
         resolver: ContentResolver,
-        nomediaEnabled: Boolean,
-        searchFoldersUseAll: Boolean,
-        searchFolders: Set<String>,
         requestId: Long
     ) {
         val childPaths = items.asSequence()
-            .filter { it.type == DisplayItem.Type.HIERARCHY }
-            .mapNotNull { it.bucketId?.takeIf { id -> id.isNotEmpty() } }
+            .filter { it.type == VideoListItem.Type.HIERARCHY }
+            .mapNotNull { it.id?.takeIf(String::isNotEmpty) }
             .distinct()
             .take(PREFETCH_LIMIT)
             .toList()
@@ -358,48 +242,19 @@ class VideoBrowserViewModel(
                 if (!isCurrent(requestId)) {
                     break
                 }
-                val key = VideoListCache.Key(
-                    queryType = VideoListCache.QueryType.HIERARCHY,
-                    mode = VideoMode.HIERARCHY,
-                    sortMode = sortMode,
-                    sortOrder = sortOrder,
-                    nomediaEnabled = nomediaEnabled,
-                    searchFoldersHash = buildSearchFoldersHash(searchFoldersUseAll, searchFolders),
-                    bucketId = null,
-                    hierarchyPath = path
+                val query = VideoQuery(
+                    source = VideoQuerySource.Hierarchy(path),
+                    options = parentQuery.options
                 )
-                val cached = cache.read(key)
+                val cached = cache.read(query)
                 if (!cached.isNullOrEmpty()) {
                     continue
                 }
-                val result = repository.loadHierarchy(
-                    path,
-                    sortMode,
-                    sortOrder,
-                    resolver,
-                    nomediaEnabled,
-                    searchFoldersUseAll,
-                    searchFolders
-                )
+                val result = repository.load(query, resolver)
                 if (isCurrent(requestId)) {
-                    cache.write(key, result)
+                    cache.write(query, result)
                 }
             }
-        }
-    }
-
-    private fun buildSearchFoldersHash(useAll: Boolean, folders: Set<String>): String {
-        if (useAll) {
-            return "all"
-        }
-        if (folders.isEmpty()) {
-            return "none"
-        }
-        val normalized = folders.sorted().joinToString("|")
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(normalized.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { byte ->
-            String.format(Locale.US, "%02x", byte)
         }
     }
 

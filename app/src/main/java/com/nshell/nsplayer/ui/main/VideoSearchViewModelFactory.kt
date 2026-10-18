@@ -7,6 +7,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.savedstate.SavedStateRegistryOwner
 import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
+import com.nshell.nsplayer.data.repository.VideoQuery
+import com.nshell.nsplayer.data.repository.VideoQuerySource
 import java.util.concurrent.Executors
 
 internal class VideoSearchViewModelFactory(owner: SavedStateRegistryOwner, context: Context) :
@@ -17,11 +19,9 @@ internal class VideoSearchViewModelFactory(owner: SavedStateRegistryOwner, conte
         require(modelClass == VideoSearchViewModel::class.java)
         val repository = MediaStoreVideoRepository()
         val resolver = applicationContext.contentResolver
+        val mapper = VideoDisplayItemMapper(applicationContext)
         val loader = VideoSearchLoader { query, options, limit ->
-            repository.searchVideos(
-                query, options.sortMode, options.sortOrder, resolver,
-                options.nomediaEnabled, options.searchFoldersUseAll, options.searchFolders, limit
-            )
+            mapper.map(repository.load(VideoQuery(VideoQuerySource.Search(query, limit), options), resolver))
         }
         @Suppress("UNCHECKED_CAST")
         return VideoSearchViewModel(

@@ -23,6 +23,8 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
+import com.nshell.nsplayer.data.repository.VideoQuery
+import com.nshell.nsplayer.data.repository.VideoQuerySource
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -314,13 +316,10 @@ class MainActivity : BaseActivity() {
         }
         Toast.makeText(this, getString(R.string.playlist_loading), Toast.LENGTH_SHORT).show()
         val current = browserState
-        val sortMode = current.sortMode
-        val sortOrder = current.sortOrder
-        val nomediaEnabled = current.nomediaEnabled
-        val searchUseAll = current.searchFoldersUseAll
-        val searchFolders = current.searchFolders
+        val queryOptions = current.toQueryOptions()
         val resolver = contentResolver
         val repository = MediaStoreVideoRepository()
+        val mapper = VideoDisplayItemMapper(this)
         playlistExecutor.execute {
             val collected = mutableListOf<DisplayItem>()
             for (item in selected) {
@@ -333,29 +332,19 @@ class MainActivity : BaseActivity() {
                     DisplayItem.Type.FOLDER -> {
                         val bucket = item.bucketId ?: continue
                         collected.addAll(
-                            repository.loadVideosInFolder(
-                                bucket,
-                                sortMode,
-                                sortOrder,
-                                resolver,
-                                nomediaEnabled,
-                                searchUseAll,
-                                searchFolders
-                            )
+                            mapper.map(repository.load(
+                                VideoQuery(VideoQuerySource.Folder(bucket), queryOptions),
+                                resolver
+                            ))
                         )
                     }
                     DisplayItem.Type.HIERARCHY -> {
                         val path = item.bucketId ?: continue
                         collected.addAll(
-                            repository.loadVideosUnderHierarchy(
-                                path,
-                                sortMode,
-                                sortOrder,
-                                resolver,
-                                nomediaEnabled,
-                                searchUseAll,
-                                searchFolders
-                            )
+                            mapper.map(repository.load(
+                                VideoQuery(VideoQuerySource.HierarchyVideos(path), queryOptions),
+                                resolver
+                            ))
                         )
                     }
                 }

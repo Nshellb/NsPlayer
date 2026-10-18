@@ -27,6 +27,7 @@ internal class VideoBrowserViewModelFactory(
     ): T {
         require(modelClass == VideoBrowserViewModel::class.java)
         val handler = Handler(Looper.getMainLooper())
+        val mapper = VideoDisplayItemMapper(applicationContext)
         @Suppress("UNCHECKED_CAST")
         return VideoBrowserViewModel(
             savedStateHandle = handle,
@@ -35,6 +36,7 @@ internal class VideoBrowserViewModelFactory(
             cacheExecutor = Executors.newSingleThreadExecutor(),
             prefetchExecutor = Executors.newSingleThreadExecutor(),
             cache = VideoListCache(applicationContext),
+            itemMapper = { items -> mapper.map(items) },
             mainExecutor = Executor { handler.post(it) }
         ) as T
     }

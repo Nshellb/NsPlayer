@@ -7,6 +7,8 @@ import android.view.View
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.nshell.nsplayer.R
+import com.nshell.nsplayer.data.repository.VideoQuery
+import com.nshell.nsplayer.data.repository.VideoQuerySource
 import com.nshell.nsplayer.data.settings.SettingsState
 
 internal fun MainActivity.loadIfPermitted(
@@ -15,48 +17,29 @@ internal fun MainActivity.loadIfPermitted(
 ) {
     val current = browserState
     if (hasVideoPermission()) {
-        when {
-            current.currentMode == VideoMode.HIERARCHY -> viewModel.loadHierarchy(
-                current.hierarchyPath,
-                current.sortMode,
-                current.sortOrder,
-                contentResolver,
-                current.nomediaEnabled,
-                current.searchFoldersUseAll,
-                current.searchFolders,
-                useCache,
-                showRefreshing
-            )
-            current.inFolderVideos && current.selectedBucketId != null ->
-                viewModel.loadFolderVideos(
-                    current.selectedBucketId!!,
-                    current.sortMode,
-                    current.sortOrder,
-                    contentResolver,
-                    current.nomediaEnabled,
-                    current.searchFoldersUseAll,
-                    current.searchFolders,
-                    useCache,
-                    showRefreshing
-                )
-            else -> viewModel.load(
-                current.currentMode,
-                current.sortMode,
-                current.sortOrder,
-                contentResolver,
-                current.nomediaEnabled,
-                current.searchFoldersUseAll,
-                current.searchFolders,
-                useCache,
-                showRefreshing
-            )
-        }
+        viewModel.load(
+            query = current.toVideoQuery(),
+            resolver = contentResolver,
+            useCache = useCache,
+            showRefreshing = showRefreshing
+        )
     } else {
         viewModel.cancelLoad()
         statusText.text = getString(R.string.permission_needed)
         statusText.visibility = View.VISIBLE
         requestMediaPermissions()
     }
+}
+
+private fun VideoBrowserState.toVideoQuery(): VideoQuery {
+    val source = when {
+        currentMode == VideoMode.HIERARCHY ->
+            VideoQuerySource.Hierarchy(hierarchyPath)
+        inFolderVideos && selectedBucketId != null ->
+            VideoQuerySource.Folder(selectedBucketId)
+        else -> VideoQuerySource.Browse(currentMode.toBrowseMode())
+    }
+    return VideoQuery(source, toQueryOptions())
 }
 
 internal fun MainActivity.hasVideoPermission(): Boolean {

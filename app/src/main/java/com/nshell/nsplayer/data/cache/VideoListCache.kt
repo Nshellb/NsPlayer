@@ -2,10 +2,9 @@ package com.nshell.nsplayer.data.cache
 
 import android.content.Context
 import android.util.Log
-import com.nshell.nsplayer.ui.main.DisplayItem
-import com.nshell.nsplayer.ui.main.VideoMode
-import com.nshell.nsplayer.ui.main.VideoSortMode
-import com.nshell.nsplayer.ui.main.VideoSortOrder
+import com.nshell.nsplayer.data.repository.VideoListItem
+import com.nshell.nsplayer.data.repository.VideoQuery
+import com.nshell.nsplayer.data.repository.VideoQuerySource
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -13,28 +12,11 @@ import java.security.MessageDigest
 import java.util.Locale
 
 class VideoListCache(context: Context) : VideoListCacheStore {
-    data class Key(
-        val queryType: QueryType,
-        val mode: VideoMode,
-        val sortMode: VideoSortMode,
-        val sortOrder: VideoSortOrder,
-        val nomediaEnabled: Boolean,
-        val searchFoldersHash: String,
-        val bucketId: String?,
-        val hierarchyPath: String?
-    )
-
-    enum class QueryType {
-        MODE,
-        FOLDER,
-        HIERARCHY
-    }
-
     private val dir = File(context.filesDir, "video_list_cache")
     private val logTag = "VideoListCache"
 
-    override fun read(key: Key): List<DisplayItem>? {
-        val file = fileFor(key)
+    override fun read(query: VideoQuery): List<VideoListItem>? {
+        val file = fileFor(query)
         if (!file.exists()) {
             return null
         }
@@ -44,15 +26,15 @@ class VideoListCache(context: Context) : VideoListCacheStore {
                 return null
             }
             val array = root.optJSONArray("items") ?: return null
-            val items = mutableListOf<DisplayItem>()
+            val items = mutableListOf<VideoListItem>()
             for (index in 0 until array.length()) {
                 val obj = array.optJSONObject(index) ?: continue
                 val typeName = obj.optString("type", "")
-                val type = DisplayItem.Type.values().firstOrNull { it.name == typeName } ?: continue
-                val title = obj.optString("title", "")
-                val subtitle = if (obj.isNull("subtitle")) null else obj.optString("subtitle", "")
-                val indentLevel = obj.optInt("indentLevel", 0)
-                val bucketId = if (obj.isNull("bucketId")) null else obj.optString("bucketId", "")
+                val type = VideoListItem.Type.values().firstOrNull { it.name == typeName } ?: continue
+                val name = if (obj.isNull("name")) null else obj.optString("name", "")
+                val id = if (obj.isNull("id")) null else obj.optString("id", "")
+                val videoCount = obj.optInt("videoCount", 0)
+                val folderCount = obj.optInt("folderCount", 0)
                 val durationMs = obj.optLong("durationMs", 0L)
                 val width = obj.optInt("width", 0)
                 val height = obj.optInt("height", 0)
@@ -61,13 +43,14 @@ class VideoListCache(context: Context) : VideoListCacheStore {
                 val modifiedSeconds = obj.optLong("modifiedSeconds", 0L)
                 val frameRate = obj.optDouble("frameRate", 0.0).toFloat()
                 val hasSubtitle = obj.optBoolean("hasSubtitle", false)
+                val volumeName = if (obj.isNull("volumeName")) null else obj.optString("volumeName", "")
                 items.add(
-                    DisplayItem(
+                    VideoListItem(
                         type = type,
-                        title = title,
-                        subtitle = subtitle,
-                        indentLevel = indentLevel,
-                        bucketId = bucketId,
+                        name = name,
+                        id = id,
+                        videoCount = videoCount,
+                        folderCount = folderCount,
                         durationMs = durationMs,
                         width = width,
                         height = height,
@@ -75,7 +58,8 @@ class VideoListCache(context: Context) : VideoListCacheStore {
                         sizeBytes = sizeBytes,
                         modifiedSeconds = modifiedSeconds,
                         frameRate = frameRate,
-                        hasSubtitle = hasSubtitle
+                        hasSubtitle = hasSubtitle,
+                        volumeName = volumeName
                     )
                 )
             }
@@ -87,11 +71,11 @@ class VideoListCache(context: Context) : VideoListCacheStore {
     }
 
     @Synchronized
-    override fun write(key: Key, items: List<DisplayItem>) {
+    override fun write(query: VideoQuery, items: List<VideoListItem>) {
         if (!dir.exists() && !dir.mkdirs()) {
             return
         }
-        val file = fileFor(key)
+        val file = fileFor(query)
         try {
             val root = JSONObject()
             root.put("version", CACHE_VERSION)
@@ -100,10 +84,10 @@ class VideoListCache(context: Context) : VideoListCacheStore {
             items.forEach { item ->
                 val obj = JSONObject()
                 obj.put("type", item.type.name)
-                obj.put("title", item.title)
-                obj.put("subtitle", item.subtitle)
-                obj.put("indentLevel", item.indentLevel)
-                obj.put("bucketId", item.bucketId)
+                obj.put("name", item.name)
+                obj.put("id", item.id)
+                obj.put("videoCount", item.videoCount)
+                obj.put("folderCount", item.folderCount)
                 obj.put("durationMs", item.durationMs)
                 obj.put("width", item.width)
                 obj.put("height", item.height)
@@ -112,6 +96,7 @@ class VideoListCache(context: Context) : VideoListCacheStore {
                 obj.put("modifiedSeconds", item.modifiedSeconds)
                 obj.put("frameRate", item.frameRate.toDouble())
                 obj.put("hasSubtitle", item.hasSubtitle)
+                obj.put("volumeName", item.volumeName)
                 array.put(obj)
             }
             root.put("items", array)
@@ -127,16 +112,21 @@ class VideoListCache(context: Context) : VideoListCacheStore {
         }
     }
 
-    private fun fileFor(key: Key): File {
+    private fun fileFor(query: VideoQuery): File {
+        val sourceKey = when (val source = query.source) {
+            is VideoQuerySource.Browse -> "browse:${source.mode.name}"
+            is VideoQuerySource.Folder -> "folder:${source.bucketId}"
+            is VideoQuerySource.Hierarchy -> "hierarchy:${source.path}"
+            is VideoQuerySource.HierarchyVideos -> "hierarchy_videos:${source.path}"
+            is VideoQuerySource.Search -> "search:${source.text}:${source.limit.orEmpty()}"
+        }
+        val options = query.options
         val raw = listOf(
-            key.queryType.name,
-            key.mode.name,
-            key.sortMode.name,
-            key.sortOrder.name,
-            if (key.nomediaEnabled) "nomedia_on" else "nomedia_off",
-            key.searchFoldersHash,
-            key.bucketId.orEmpty(),
-            key.hierarchyPath.orEmpty()
+            sourceKey,
+            options.sortField.name,
+            options.sortDirection.name,
+            if (options.respectNoMedia) "nomedia_on" else "nomedia_off",
+            options.folderIds?.sorted()?.joinToString("|") ?: "all_folders"
         ).joinToString("|")
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(raw.toByteArray(Charsets.UTF_8))
@@ -147,6 +137,8 @@ class VideoListCache(context: Context) : VideoListCacheStore {
     }
 
     companion object {
-        private const val CACHE_VERSION = 1
+        private const val CACHE_VERSION = 2
     }
 }
+
+private fun Int?.orEmpty(): String = this?.toString().orEmpty()

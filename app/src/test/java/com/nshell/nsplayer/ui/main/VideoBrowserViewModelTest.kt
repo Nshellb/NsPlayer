@@ -4,9 +4,15 @@ import android.content.ContentResolver
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelStore
-import com.nshell.nsplayer.data.cache.VideoListCache
 import com.nshell.nsplayer.data.cache.VideoListCacheStore
+import com.nshell.nsplayer.data.repository.VideoBrowseMode
+import com.nshell.nsplayer.data.repository.VideoListItem
+import com.nshell.nsplayer.data.repository.VideoQuery
+import com.nshell.nsplayer.data.repository.VideoQueryOptions
+import com.nshell.nsplayer.data.repository.VideoQuerySource
 import com.nshell.nsplayer.data.repository.VideoRepository
+import com.nshell.nsplayer.data.repository.VideoSortDirection
+import com.nshell.nsplayer.data.repository.VideoSortField
 import java.io.IOException
 import java.util.ArrayDeque
 import java.util.concurrent.AbstractExecutorService
@@ -24,22 +30,31 @@ class VideoBrowserViewModelTest {
     private val prefetchWorker = QueuedExecutor()
     private val main = QueuedExecutor()
     private val cache = FakeCache()
-    private val key = VideoListCache.Key(
-        VideoListCache.QueryType.MODE, VideoMode.VIDEOS,
-        VideoSortMode.TITLE, VideoSortOrder.ASC, false, "all", null, null
+    private val query = VideoQuery(
+        VideoQuerySource.Browse(VideoBrowseMode.VIDEOS),
+        VideoQueryOptions(
+            VideoSortField.TITLE,
+            VideoSortDirection.ASCENDING,
+            respectNoMedia = false,
+            folderIds = null
+        )
     )
-    private val fresh = listOf(DisplayItem(DisplayItem.Type.VIDEO, "fresh", null, 0))
-    private val cached = listOf(DisplayItem(DisplayItem.Type.VIDEO, "cached", null, 0))
+    private val fresh = listOf(VideoListItem(VideoListItem.Type.VIDEO, "fresh"))
+    private val cached = listOf(VideoListItem(VideoListItem.Type.VIDEO, "cached"))
+
+    private fun map(items: List<VideoListItem>) = items.map {
+        DisplayItem(DisplayItem.Type.VIDEO, it.name.orEmpty(), null, 0)
+    }
 
     private fun newViewModel() = VideoBrowserViewModel(
         SavedStateHandle(), UnusedRepository, queryWorker, cacheWorker,
-        prefetchWorker, cache, main
+        prefetchWorker, cache, ::map, main
     )
 
     @Test fun initialFailureStopsLoadingAndRetryCanSucceed() {
         val vm = newViewModel()
         val error = SecurityException("permission revoked")
-        vm.loadInternal(key, false, false, loader = { throw error })
+        vm.loadInternal(query, false, false, loader = { throw error })
         assertTrue(vm.currentLoadState.isLoading)
         queryWorker.runNext()
         main.runNext()
@@ -48,24 +63,24 @@ class VideoBrowserViewModelTest {
         assertFalse(vm.currentLoadState.isLoading)
         assertFalse(vm.currentLoadState.isRefreshing)
 
-        vm.loadInternal(key, false, true, loader = { fresh })
+        vm.loadInternal(query, false, true, loader = { fresh })
         assertNull(vm.currentLoadState.error)
         assertTrue(vm.currentLoadState.isRefreshing)
         queryWorker.runNext()
         main.runNext()
-        assertEquals(VideoBrowserLoadState(fresh, VideoBrowserLoadState.Phase.READY), vm.currentLoadState)
+        assertEquals(VideoBrowserLoadState(map(fresh), VideoBrowserLoadState.Phase.READY), vm.currentLoadState)
     }
 
     @Test fun failedRefreshRetainsExistingList() {
         val vm = newViewModel()
-        vm.loadInternal(key, false, false, loader = { fresh })
+        vm.loadInternal(query, false, false, loader = { fresh })
         queryWorker.runNext()
         main.runNext()
 
-        vm.loadInternal(key, false, true, loader = { throw IOException() })
+        vm.loadInternal(query, false, true, loader = { throw IOException() })
         queryWorker.runNext()
         main.runNext()
-        assertEquals(fresh, vm.currentLoadState.items)
+        assertEquals(map(fresh), vm.currentLoadState.items)
         assertNotNull(vm.currentLoadState.error)
         assertFalse(vm.currentLoadState.isRefreshing)
     }
@@ -73,12 +88,12 @@ class VideoBrowserViewModelTest {
     @Test fun cacheArrivingAfterFailureProvidesFallbackWithoutRestartingLoading() {
         val vm = newViewModel()
         cache.items = cached
-        vm.loadInternal(key, true, true, loader = { throw IOException() })
+        vm.loadInternal(query, true, true, loader = { throw IOException() })
         queryWorker.runNext()
         main.runNext()
         cacheWorker.runNext()
         main.runNext()
-        assertEquals(cached, vm.currentLoadState.items)
+        assertEquals(map(cached), vm.currentLoadState.items)
         assertEquals(VideoBrowserLoadState.Phase.FAILED, vm.currentLoadState.phase)
         assertNotNull(vm.currentLoadState.error)
         assertFalse(vm.currentLoadState.isRefreshing)
@@ -86,10 +101,10 @@ class VideoBrowserViewModelTest {
 
     @Test fun changedQueryDoesNotRetainItemsFromDifferentFilter() {
         val vm = newViewModel()
-        vm.loadInternal(key, false, false, loader = { fresh })
+        vm.loadInternal(query, false, false, loader = { fresh })
         queryWorker.runNext()
         main.runNext()
-        vm.loadInternal(key.copy(searchFoldersHash = "other"), false, false,
+        vm.loadInternal(query.copy(options = query.options.copy(folderIds = setOf("other"))), false, false,
             loader = { throw IOException() })
         assertNull(vm.currentLoadState.items)
         queryWorker.runNext()
@@ -100,7 +115,7 @@ class VideoBrowserViewModelTest {
 
     @Test fun cacheMissAndQueryFailureReachTerminalState() {
         val vm = newViewModel()
-        vm.loadInternal(key, true, false, loader = { throw IOException() })
+        vm.loadInternal(query, true, false, loader = { throw IOException() })
         cacheWorker.runNext()
         queryWorker.runNext()
         main.runNext()
@@ -112,25 +127,25 @@ class VideoBrowserViewModelTest {
     @Test fun cacheArrivingBeforeFailureIsRetained() {
         val vm = newViewModel()
         cache.items = cached
-        vm.loadInternal(key, true, false, loader = { throw IOException() })
+        vm.loadInternal(query, true, false, loader = { throw IOException() })
         cacheWorker.runNext()
         main.runNext()
-        assertEquals(cached, vm.currentLoadState.items)
+        assertEquals(map(cached), vm.currentLoadState.items)
         queryWorker.runNext()
         main.runNext()
-        assertEquals(cached, vm.currentLoadState.items)
+        assertEquals(map(cached), vm.currentLoadState.items)
         assertEquals(VideoBrowserLoadState.Phase.FAILED, vm.currentLoadState.phase)
     }
 
     @Test fun lateCacheCannotReplaceFreshSuccess() {
         val vm = newViewModel()
         cache.items = cached
-        vm.loadInternal(key, true, false, loader = { fresh })
+        vm.loadInternal(query, true, false, loader = { fresh })
         cacheWorker.runNext() // The cached result is waiting for main-thread delivery.
         queryWorker.runNext()
         main.runLast() // Deliver the fresh result first.
         main.runNext()
-        assertEquals(fresh, vm.currentLoadState.items)
+        assertEquals(map(fresh), vm.currentLoadState.items)
         assertEquals(VideoBrowserLoadState.Phase.READY, vm.currentLoadState.phase)
     }
 
@@ -138,44 +153,44 @@ class VideoBrowserViewModelTest {
         val vm = newViewModel()
         cache.readError = IOException("cache read")
         cache.writeError = IOException("cache write")
-        vm.loadInternal(key, true, false, loader = { fresh }, prefetch = { _, _ ->
+        vm.loadInternal(query, true, false, loader = { fresh }, prefetch = { _, _ ->
             throw IOException("prefetch")
         })
         cacheWorker.runNext()
         queryWorker.runNext()
         main.runNext()
         cacheWorker.runNext()
-        assertEquals(VideoBrowserLoadState(fresh, VideoBrowserLoadState.Phase.READY), vm.currentLoadState)
+        assertEquals(VideoBrowserLoadState(map(fresh), VideoBrowserLoadState.Phase.READY), vm.currentLoadState)
     }
 
     @Test fun staleFailureCannotStopNewRequest() {
         val vm = newViewModel()
-        vm.loadInternal(key, false, false, loader = { throw IOException() })
+        vm.loadInternal(query, false, false, loader = { throw IOException() })
         queryWorker.runNext()
-        vm.loadInternal(key, false, true, loader = { fresh })
+        vm.loadInternal(query, false, true, loader = { fresh })
         main.runNext() // Deliver the old failure while the new request is pending.
         assertTrue(vm.currentLoadState.isRefreshing)
         assertNull(vm.currentLoadState.error)
         queryWorker.runNext()
         main.runNext()
-        assertEquals(fresh, vm.currentLoadState.items)
+        assertEquals(map(fresh), vm.currentLoadState.items)
     }
 
     @Test fun staleSuccessCannotReplaceNewerResult() {
         val vm = newViewModel()
-        vm.loadInternal(key, false, false, loader = { cached })
+        vm.loadInternal(query, false, false, loader = { cached })
         queryWorker.runNext()
-        vm.loadInternal(key, false, false, loader = { fresh })
+        vm.loadInternal(query, false, false, loader = { fresh })
         queryWorker.runNext()
         main.runLast()
         main.runNext()
-        assertEquals(fresh, vm.currentLoadState.items)
+        assertEquals(map(fresh), vm.currentLoadState.items)
     }
 
     @Test fun navigationInvalidatesQueuedCacheAndQueryDeliveries() {
         val vm = newViewModel()
         cache.items = cached
-        vm.loadInternal(key, true, false, loader = { fresh })
+        vm.loadInternal(query, true, false, loader = { fresh })
         cacheWorker.runNext()
         queryWorker.runNext()
         vm.setState(VideoBrowserState(currentMode = VideoMode.HIERARCHY, hierarchyPath = "Movies/"))
@@ -187,7 +202,7 @@ class VideoBrowserViewModelTest {
     @Test fun rejectedQueryStopsBothLoadingIndicators() {
         val vm = newViewModel()
         queryWorker.shutdown()
-        vm.loadInternal(key, false, true, loader = { fresh })
+        vm.loadInternal(query, false, true, loader = { fresh })
         assertTrue(vm.currentLoadState.error is RejectedExecutionException)
         assertFalse(vm.currentLoadState.isLoading)
         assertFalse(vm.currentLoadState.isRefreshing)
@@ -196,15 +211,15 @@ class VideoBrowserViewModelTest {
     @Test fun rejectedCacheWorkDoesNotPreventFreshResult() {
         val vm = newViewModel()
         cacheWorker.shutdown()
-        vm.loadInternal(key, true, false, loader = { fresh })
+        vm.loadInternal(query, true, false, loader = { fresh })
         queryWorker.runNext()
         main.runNext()
-        assertEquals(VideoBrowserLoadState(fresh, VideoBrowserLoadState.Phase.READY), vm.currentLoadState)
+        assertEquals(VideoBrowserLoadState(map(fresh), VideoBrowserLoadState.Phase.READY), vm.currentLoadState)
     }
 
     @Test fun cancellationDiscardsPendingFailureAndStopsRefreshing() {
         val vm = newViewModel()
-        vm.loadInternal(key, false, true, loader = { throw IOException() })
+        vm.loadInternal(query, false, true, loader = { throw IOException() })
         queryWorker.runNext()
         vm.cancelLoad()
         main.runNext()
@@ -215,7 +230,7 @@ class VideoBrowserViewModelTest {
         val vm = newViewModel()
         val store = ViewModelStore()
         store.put("browser", vm)
-        vm.loadInternal(key, false, false, loader = { fresh })
+        vm.loadInternal(query, false, false, loader = { fresh })
         queryWorker.runNext()
         val beforeClear = vm.currentLoadState
         store.clear()
@@ -227,14 +242,14 @@ class VideoBrowserViewModelTest {
     }
 
     private class FakeCache : VideoListCacheStore {
-        var items: List<DisplayItem>? = null
+        var items: List<VideoListItem>? = null
         var readError: Exception? = null
         var writeError: Exception? = null
-        override fun read(key: VideoListCache.Key): List<DisplayItem>? {
+        override fun read(query: VideoQuery): List<VideoListItem>? {
             readError?.let { throw it }
             return items
         }
-        override fun write(key: VideoListCache.Key, items: List<DisplayItem>) {
+        override fun write(query: VideoQuery, items: List<VideoListItem>) {
             writeError?.let { throw it }
             this.items = items
         }
@@ -261,28 +276,7 @@ class VideoBrowserViewModelTest {
 
     // These tests inject the loader at the common request boundary, avoiding Android I/O.
     private object UnusedRepository : VideoRepository {
-        override fun load(
-            mode: VideoMode, sortMode: VideoSortMode, sortOrder: VideoSortOrder,
-            resolver: ContentResolver, nomediaEnabled: Boolean,
-            searchFoldersUseAll: Boolean, searchFolders: Set<String>
-        ): List<DisplayItem> = error("Unexpected repository access")
-
-        override fun loadVideosInFolder(
-            bucketId: String, sortMode: VideoSortMode, sortOrder: VideoSortOrder,
-            resolver: ContentResolver, nomediaEnabled: Boolean,
-            searchFoldersUseAll: Boolean, searchFolders: Set<String>
-        ): List<DisplayItem> = error("Unexpected repository access")
-
-        override fun loadHierarchy(
-            path: String, sortMode: VideoSortMode, sortOrder: VideoSortOrder,
-            resolver: ContentResolver, nomediaEnabled: Boolean,
-            searchFoldersUseAll: Boolean, searchFolders: Set<String>
-        ): List<DisplayItem> = error("Unexpected repository access")
-
-        override fun searchVideos(
-            query: String, sortMode: VideoSortMode, sortOrder: VideoSortOrder,
-            resolver: ContentResolver, nomediaEnabled: Boolean,
-            searchFoldersUseAll: Boolean, searchFolders: Set<String>, limit: Int?
-        ): List<DisplayItem> = error("Unexpected repository access")
+        override fun load(query: VideoQuery, resolver: ContentResolver): List<VideoListItem> =
+            error("Unexpected repository access")
     }
 }
