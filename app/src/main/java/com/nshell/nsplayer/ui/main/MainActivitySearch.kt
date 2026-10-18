@@ -113,6 +113,9 @@ private fun MainActivity.renderSearchState(state: VideoSearchState, previous: Vi
 
 internal fun MainActivity.renderSearchStatus(state: VideoSearchState) {
     if (!state.active || (!state.showingResults && state.input.isBlank())) return
+    val showLoading = state.error == null && state.showingResults &&
+        state.loading && state.results == null
+    if (!showLoading) delayedLoadingStatus.cancel()
     statusText.setOnClickListener(null)
     statusText.isClickable = false
     statusText.visibility = View.GONE
@@ -128,9 +131,8 @@ internal fun MainActivity.renderSearchStatus(state: VideoSearchState) {
                 if (hasVideoPermission()) searchViewModel.refresh() else requestMediaPermissions()
             }
         }
-        state.showingResults && state.loading && state.results == null -> {
-            statusText.setText(R.string.status_loading)
-            statusText.visibility = View.VISIBLE
+        showLoading -> {
+            delayedLoadingStatus.show(DelayedLoadingStatus.Source.SEARCH)
         }
     }
 }

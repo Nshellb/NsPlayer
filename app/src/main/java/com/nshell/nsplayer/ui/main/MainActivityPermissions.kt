@@ -25,6 +25,7 @@ internal fun MainActivity.loadIfPermitted(
         )
     } else {
         viewModel.cancelLoad()
+        delayedLoadingStatus.cancel()
         statusText.text = getString(R.string.permission_needed)
         statusText.visibility = View.VISIBLE
         requestMediaPermissions()
@@ -117,8 +118,16 @@ internal fun MainActivity.renderLoadState(loadState: VideoBrowserLoadState) {
     if (isShowingSearchResults) return
     renderItems(loadState.items)
     refreshLayout.isRefreshing = loadState.isRefreshing
+    val searchState = searchViewModel.currentState
+    if (searchState.active && searchState.input.isNotBlank()) {
+        renderSearchStatus(searchState)
+        return
+    }
     statusText.setOnClickListener(null)
     statusText.isClickable = false
+    val showLoading = hasVideoPermission() && loadState.error == null &&
+        loadState.isLoading && loadState.items == null
+    if (!showLoading) delayedLoadingStatus.cancel()
     if (!hasVideoPermission()) return
     statusText.visibility = View.GONE
 
@@ -129,9 +138,8 @@ internal fun MainActivity.renderLoadState(loadState: VideoBrowserLoadState) {
             statusText.visibility = View.VISIBLE
             statusText.setOnClickListener { loadIfPermitted(showRefreshing = true) }
         }
-        loadState.isLoading && loadState.items == null -> {
-            statusText.setText(R.string.status_loading)
-            statusText.visibility = View.VISIBLE
+        showLoading -> {
+            delayedLoadingStatus.show(DelayedLoadingStatus.Source.BROWSE)
         }
     }
     renderSearchStatus(searchViewModel.currentState)
@@ -175,6 +183,7 @@ internal fun MainActivity.loadWithSettings() {
     if (hasVideoPermission()) {
         loadIfPermitted(useCache = true, showRefreshing = true)
     } else {
+        delayedLoadingStatus.cancel()
         statusText.text = getString(R.string.permission_needed)
         statusText.visibility = View.VISIBLE
         requestMediaPermissions()

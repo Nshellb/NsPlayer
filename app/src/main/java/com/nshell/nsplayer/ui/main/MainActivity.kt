@@ -31,6 +31,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : BaseActivity() {
     internal lateinit var statusText: TextView
+    internal val delayedLoadingStatus by lazy { DelayedLoadingStatus(statusText) }
     internal lateinit var emptyText: TextView
     internal lateinit var folderTitle: TextView
     internal lateinit var folderHeader: View
@@ -274,6 +275,7 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
+        delayedLoadingStatus.cancel()
         super.onDestroy()
         playlistExecutor.shutdown()
     }
@@ -303,6 +305,7 @@ class MainActivity : BaseActivity() {
         if (hasVideoPermission()) {
             loadIfPermitted()
         } else {
+            delayedLoadingStatus.cancel()
             statusText.text = getString(R.string.permission_denied)
             statusText.visibility = View.VISIBLE
         }
