@@ -86,6 +86,7 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.ui)
     testImplementation(libs.junit)
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

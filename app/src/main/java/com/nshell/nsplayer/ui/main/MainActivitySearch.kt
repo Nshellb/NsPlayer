@@ -63,7 +63,6 @@ internal fun MainActivity.enterSearchMode() {
     if (selectionController.isSelectionMode()) {
         selectionController.clearSelection()
     }
-    latestBrowseItems = viewModel.getItems().value
     committedSearchQuery = ""
     isSearchMode = true
     isShowingSearchResults = false
@@ -118,6 +117,7 @@ internal fun MainActivity.submitSearchQuery(sourceQuery: String? = null) {
     hideKeyboard(searchInput)
     committedSearchQuery = query
     isShowingSearchResults = true
+    statusText.visibility = View.GONE
     val requestId = searchRequestCounter.incrementAndGet()
     val current = browserState
 
@@ -240,12 +240,12 @@ internal fun MainActivity.hidePreviewList() {
 }
 
 internal fun MainActivity.restoreBrowseAfterSearch() {
-    val browseItems = latestBrowseItems
+    val loadState = viewModel.currentLoadState
     if (!isSearchMode) {
         applyVideoDisplayMode()
     }
-    renderItems(browseItems)
-    if (browseItems == null) {
+    renderLoadState(loadState)
+    if (loadState.items == null && loadState.phase == VideoBrowserLoadState.Phase.IDLE) {
         loadIfPermitted(useCache = true)
     }
 }

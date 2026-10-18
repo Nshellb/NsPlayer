@@ -5,6 +5,7 @@
     <string name="mode_hierarchy">Folder hierarchy</string>
     <string name="mode_videos">Files</string>
     <string name="status_loading">Loading...</string>
+    <string name="video_list_load_failed">Could not load the list. Tap to retry.</string>
     <string name="empty_state">No items to display.</string>
     <string name="permission_needed">Permission is required to show your videos.</string>
     <string name="permission_denied">Permission denied. Please allow it in settings.</string>

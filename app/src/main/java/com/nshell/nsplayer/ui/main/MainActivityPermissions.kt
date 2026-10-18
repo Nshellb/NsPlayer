@@ -52,11 +52,9 @@ internal fun MainActivity.loadIfPermitted(
             )
         }
     } else {
+        viewModel.cancelLoad()
         statusText.text = getString(R.string.permission_needed)
         statusText.visibility = View.VISIBLE
-        if (showRefreshing) {
-            viewModel.setRefreshing(false)
-        }
         requestMediaPermissions()
     }
 }
@@ -97,7 +95,6 @@ internal fun MainActivity.requestMediaPermissions() {
 }
 
 internal fun MainActivity.renderItems(items: List<DisplayItem>?) {
-    latestBrowseItems = items
     if (items == null) {
         if (!isSearchMode || !isShowingSearchResults) {
             adapter.submit(null)
@@ -133,17 +130,26 @@ internal fun MainActivity.restoreTransientUiStateIfNeeded() {
     }
 }
 
-internal fun MainActivity.renderLoading(loading: Boolean?) {
-    val show = loading != null && loading
-    if (show) {
-        statusText.text = getString(R.string.status_loading)
-        statusText.visibility = View.GONE
-        return
-    }
-    val current = statusText.text
-    if (current != null && current.toString() == getString(R.string.status_loading)) {
-        statusText.text = ""
-        statusText.visibility = View.GONE
+internal fun MainActivity.renderLoadState(loadState: VideoBrowserLoadState) {
+    renderItems(loadState.items)
+    refreshLayout.isRefreshing = loadState.isRefreshing
+    statusText.setOnClickListener(null)
+    statusText.isClickable = false
+    if (!hasVideoPermission()) return
+    statusText.visibility = View.GONE
+    if (isSearchMode && isShowingSearchResults) return
+
+    when {
+        loadState.error != null -> {
+            emptyText.visibility = View.GONE
+            statusText.setText(R.string.video_list_load_failed)
+            statusText.visibility = View.VISIBLE
+            statusText.setOnClickListener { loadIfPermitted(showRefreshing = true) }
+        }
+        loadState.isLoading && loadState.items == null -> {
+            statusText.setText(R.string.status_loading)
+            statusText.visibility = View.VISIBLE
+        }
     }
 }
 

@@ -1,43 +1,41 @@
 package com.nshell.nsplayer.ui.main
 
 import android.content.ContentResolver
-import android.os.Handler
-import android.os.Looper
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
-import com.nshell.nsplayer.NsPlayerApp
 import com.nshell.nsplayer.data.cache.VideoListCache
-import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
+import com.nshell.nsplayer.data.cache.VideoListCacheStore
 import com.nshell.nsplayer.data.repository.VideoRepository
 import java.security.MessageDigest
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicLong
 
+/** Worker executors belong to this ViewModel; mainExecutor dispatches to the UI thread. */
 class VideoBrowserViewModel(
-    private val savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle,
+    private val repository: VideoRepository,
+    private val executor: ExecutorService,
+    private val cacheExecutor: ExecutorService,
+    private val prefetchExecutor: ExecutorService,
+    private val cache: VideoListCacheStore?,
+    private val mainExecutor: Executor
 ) : ViewModel() {
-    private val items = MutableLiveData<List<DisplayItem>?>(null)
-    private val loading = MutableLiveData(false)
-    private val refreshing = MutableLiveData(false)
+    private val loadState = MutableLiveData(VideoBrowserLoadState())
     private val state = MutableLiveData(restoreNavigationState())
-    private val repository: VideoRepository = MediaStoreVideoRepository()
-    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val cacheExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val prefetchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val cache: VideoListCache? = NsPlayerApp.appContext()?.let { VideoListCache(it) }
     private val requestCounter = AtomicLong(0L)
-    private val mainHandler = Handler(Looper.getMainLooper())
     private var freshResultRequestId = 0L
+    private var lastLoadKey: VideoListCache.Key? = null
+    @Volatile private var cleared = false
 
-    fun getItems(): LiveData<List<DisplayItem>?> = items
+    fun getLoadState(): LiveData<VideoBrowserLoadState> = loadState
 
-    fun getLoading(): LiveData<Boolean> = loading
-
-    fun getRefreshing(): LiveData<Boolean> = refreshing
+    val currentLoadState: VideoBrowserLoadState
+        get() = requireNotNull(loadState.value)
 
     fun getState(): LiveData<VideoBrowserState> = state
 
@@ -49,9 +47,7 @@ class VideoBrowserViewModel(
         if (!currentState.hasSameNavigation(normalized)) {
             // Invalidate both queued worker results and the old directory's displayed list.
             requestCounter.incrementAndGet()
-            items.value = null
-            loading.value = false
-            refreshing.value = false
+            loadState.value = VideoBrowserLoadState()
         }
         saveNavigationState(normalized)
         state.value = normalized
@@ -227,89 +223,111 @@ class VideoBrowserViewModel(
         )
     }
 
-    fun setRefreshing(value: Boolean) {
-        refreshing.value = value
+    fun cancelLoad() {
+        requestCounter.incrementAndGet()
+        loadState.value = VideoBrowserLoadState(items = currentLoadState.items)
     }
 
-    private fun loadInternal(
+    internal fun loadInternal(
         key: VideoListCache.Key,
         useCache: Boolean,
         showRefreshing: Boolean,
         loader: () -> List<DisplayItem>,
         prefetch: ((List<DisplayItem>, Long) -> Unit)? = null
     ) {
+        if (cleared) return
         val requestId = requestCounter.incrementAndGet()
         freshResultRequestId = 0L
-        if (showRefreshing && !useCache) {
-            refreshing.value = true
-        } else if (!useCache) {
-            loading.value = true
+        val retainedItems = currentLoadState.items.takeIf { lastLoadKey == key }
+        lastLoadKey = key
+        loadState.value = VideoBrowserLoadState(
+            items = retainedItems,
+            phase = if (showRefreshing) VideoBrowserLoadState.Phase.REFRESHING
+                else VideoBrowserLoadState.Phase.LOADING
+        )
+        if (useCache && cache != null) {
+            submitOptional(cacheExecutor) {
+                if (!isCurrent(requestId)) return@submitOptional
+                val cached = cache.read(key) ?: return@submitOptional
+                mainExecutor.execute {
+                    // A late cache may provide fallback data after failure, but must not
+                    // clear the error or replace a successful fresh response.
+                    if (isCurrent(requestId) && freshResultRequestId != requestId &&
+                        currentLoadState.items == null
+                    ) {
+                        loadState.value = currentLoadState.copy(items = cached)
+                    }
+                }
+            }
         }
-        if (useCache) {
-            cacheExecutor.execute {
-                if (requestId != requestCounter.get()) {
+        try {
+            executor.execute {
+                if (!isCurrent(requestId)) return@execute
+                val result = try {
+                    loader()
+                } catch (error: Exception) {
+                    mainExecutor.execute { finishFailure(requestId, error) }
                     return@execute
                 }
-                val cached = cache?.read(key)
-                mainHandler.post {
-                    // Check at delivery time: a navigation can happen after the worker finishes.
-                    if (requestId != requestCounter.get() || freshResultRequestId == requestId) {
-                        return@post
-                    }
-                    if (cached != null) {
-                        items.value = cached
-                        if (showRefreshing) {
-                            refreshing.value = false
-                        } else {
-                            loading.value = false
-                        }
-                    } else {
-                        if (showRefreshing) {
-                            refreshing.value = true
-                        } else {
-                            loading.value = true
+                if (!isCurrent(requestId)) return@execute
+                mainExecutor.execute {
+                    if (isCurrent(requestId)) {
+                        freshResultRequestId = requestId
+                        loadState.value = VideoBrowserLoadState(
+                            items = result,
+                            phase = VideoBrowserLoadState.Phase.READY
+                        )
+                        // Disk writes and prefetch are optional and cannot fail this load.
+                        submitOptional(cacheExecutor) {
+                            if (isCurrent(requestId)) cache?.write(key, result)
                         }
                     }
                 }
+                if (isCurrent(requestId)) {
+                    try {
+                        prefetch?.invoke(result, requestId)
+                    } catch (_: Exception) {
+                        // The foreground result is independent of speculative work.
+                    }
+                }
             }
+        } catch (error: RejectedExecutionException) {
+            finishFailure(requestId, error)
         }
-        executor.execute {
-            if (requestId != requestCounter.get()) {
-                return@execute
-            }
-            val result = loader()
-            if (requestId != requestCounter.get()) {
-                return@execute
-            }
-            mainHandler.post {
-                if (requestId != requestCounter.get()) {
-                    return@post
-                }
-                // A slow cache read must never replace this request's fresh result.
-                freshResultRequestId = requestId
-                items.value = result
-                loading.value = false
-                refreshing.value = false
-                // Serialization and disk writes must not delay this list or the next query.
-                cacheExecutor.execute {
-                    if (requestId == requestCounter.get()) {
-                        cache?.write(key, result)
-                    }
+    }
+
+    private fun isCurrent(requestId: Long): Boolean =
+        !cleared && requestId == requestCounter.get()
+
+    private fun finishFailure(requestId: Long, error: Exception) {
+        if (!isCurrent(requestId)) return
+        loadState.value = currentLoadState.copy(
+            phase = VideoBrowserLoadState.Phase.FAILED,
+            error = error
+        )
+    }
+
+    private fun submitOptional(worker: ExecutorService, task: () -> Unit) {
+        try {
+            worker.execute {
+                try {
+                    task()
+                } catch (_: Exception) {
+                    // Cache and prefetch failures must not change the visible load state.
                 }
             }
-            if (requestId == requestCounter.get()) {
-                prefetch?.invoke(result, requestId)
-            }
+        } catch (_: RejectedExecutionException) {
+            // The ViewModel may have been cleared while a worker was completing.
         }
     }
 
     override fun onCleared() {
-        super.onCleared()
+        cleared = true
         requestCounter.incrementAndGet()
-        mainHandler.removeCallbacksAndMessages(null)
-        executor.shutdown()
-        cacheExecutor.shutdown()
-        prefetchExecutor.shutdown()
+        executor.shutdownNow()
+        cacheExecutor.shutdownNow()
+        prefetchExecutor.shutdownNow()
+        super.onCleared()
     }
 
     private fun prefetchHierarchyChildren(
@@ -331,12 +349,13 @@ class VideoBrowserViewModel(
         if (childPaths.isEmpty()) {
             return
         }
-        prefetchExecutor.execute {
-            if (requestId != requestCounter.get()) {
-                return@execute
+        if (cache == null) return
+        submitOptional(prefetchExecutor) {
+            if (!isCurrent(requestId)) {
+                return@submitOptional
             }
             for (path in childPaths) {
-                if (requestId != requestCounter.get()) {
+                if (!isCurrent(requestId)) {
                     break
                 }
                 val key = VideoListCache.Key(
@@ -349,7 +368,7 @@ class VideoBrowserViewModel(
                     bucketId = null,
                     hierarchyPath = path
                 )
-                val cached = cache?.read(key)
+                val cached = cache.read(key)
                 if (!cached.isNullOrEmpty()) {
                     continue
                 }
@@ -362,8 +381,8 @@ class VideoBrowserViewModel(
                     searchFoldersUseAll,
                     searchFolders
                 )
-                if (requestId == requestCounter.get()) {
-                    cache?.write(key, result)
+                if (isCurrent(requestId)) {
+                    cache.write(key, result)
                 }
             }
         }

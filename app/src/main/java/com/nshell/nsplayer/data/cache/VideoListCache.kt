@@ -12,7 +12,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
 
-class VideoListCache(context: Context) {
+class VideoListCache(context: Context) : VideoListCacheStore {
     data class Key(
         val queryType: QueryType,
         val mode: VideoMode,
@@ -33,7 +33,7 @@ class VideoListCache(context: Context) {
     private val dir = File(context.filesDir, "video_list_cache")
     private val logTag = "VideoListCache"
 
-    fun read(key: Key): List<DisplayItem>? {
+    override fun read(key: Key): List<DisplayItem>? {
         val file = fileFor(key)
         if (!file.exists()) {
             return null
@@ -87,7 +87,7 @@ class VideoListCache(context: Context) {
     }
 
     @Synchronized
-    fun write(key: Key, items: List<DisplayItem>) {
+    override fun write(key: Key, items: List<DisplayItem>) {
         if (!dir.exists() && !dir.mkdirs()) {
             return
         }

@@ -69,7 +69,6 @@ class MainActivity : BaseActivity() {
     internal var isSearchMode = false
     internal var isShowingSearchResults = false
     internal var committedSearchQuery = ""
-    internal var latestBrowseItems: List<DisplayItem>? = null
     internal var previewDebounceRunnable: Runnable? = null
     internal var suppressSearchTextChange = false
     internal val searchUiHandler = Handler(Looper.getMainLooper())
@@ -151,15 +150,14 @@ class MainActivity : BaseActivity() {
             loadIfPermitted(useCache = false, showRefreshing = true)
         }
 
-        viewModel = ViewModelProvider(this)[VideoBrowserViewModel::class.java]
+        viewModel = ViewModelProvider(
+            this,
+            VideoBrowserViewModelFactory(this, this, intent.extras)
+        )[VideoBrowserViewModel::class.java]
         returningFromPlayer = savedInstanceState?.getBoolean(STATE_RETURNING_FROM_PLAYER) ?: false
         restoreTransientUiState(savedInstanceState)
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
-        viewModel.getItems().observe(this) { renderItems(it) }
-        viewModel.getLoading().observe(this) { renderLoading(it) }
-        viewModel.getRefreshing().observe(this) { refreshing ->
-            refreshLayout.isRefreshing = refreshing == true
-        }
+        viewModel.getLoadState().observe(this) { renderLoadState(it) }
         var observedState = browserState
         viewModel.getState().observe(this) { state ->
             val previous = observedState

@@ -5,6 +5,7 @@
     <string name="mode_hierarchy">계층 폴더</string>
     <string name="mode_videos">파일</string>
     <string name="status_loading">불러오는 중...</string>
+    <string name="video_list_load_failed">목록을 불러오지 못했습니다. 눌러서 다시 시도하세요.</string>
     <string name="empty_state">표시할 항목이 없습니다.</string>
     <string name="permission_needed">동영상 목록을 표시하려면 권한이 필요합니다.</string>
     <string name="permission_denied">권한이 거부되었습니다. 설정에서 권한을 허용해 주세요.</string>
