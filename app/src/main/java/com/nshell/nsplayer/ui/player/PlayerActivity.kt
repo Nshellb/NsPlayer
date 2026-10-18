@@ -94,7 +94,8 @@ class PlayerActivity : BaseActivity() {
             uiHandler.postDelayed(this, UI_UPDATE_INTERVAL_MS)
         }
     }
-    private val hideOverlayRunnable = Runnable { overlayContainer.visibility = View.GONE }
+    private var isOverlayHiding = false
+    private val hideOverlayRunnable = Runnable { hideOverlay(animate = false) }
     private val hideGestureTextRunnable = Runnable { gestureText.visibility = View.GONE }
     private val hideResumeButtonRunnable = Runnable { resumeButton.visibility = View.GONE }
     private val showLoadingSpinnerRunnable = Runnable {
@@ -292,9 +293,6 @@ class PlayerActivity : BaseActivity() {
 
         val root = findViewById<View>(R.id.playerRoot)
         val touchListener = View.OnTouchListener { v, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                showOverlay()
-            }
             if (isTouchOnControls(event)) {
                 return@OnTouchListener false
             }
@@ -358,6 +356,7 @@ class PlayerActivity : BaseActivity() {
         super.onStop()
         uiHandler.removeCallbacks(progressUpdater)
         uiHandler.removeCallbacks(hideOverlayRunnable)
+        overlayContainer.animate().cancel()
         uiHandler.removeCallbacks(hideGestureTextRunnable)
         uiHandler.removeCallbacks(hideResumeButtonRunnable)
         uiHandler.removeCallbacks(showLoadingSpinnerRunnable)
@@ -391,8 +390,7 @@ class PlayerActivity : BaseActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         if (isInPictureInPictureMode) {
-            uiHandler.removeCallbacks(hideOverlayRunnable)
-            overlayContainer.visibility = View.GONE
+            hideOverlay(animate = false)
             resumeButton.visibility = View.GONE
         } else {
             player?.let { applyAutoOrientation(it.videoSize) }
@@ -890,25 +888,51 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun toggleOverlay() {
-        if (overlayContainer.visibility == View.VISIBLE) {
-            overlayContainer.visibility = View.GONE
-            uiHandler.removeCallbacks(hideOverlayRunnable)
+        if (overlayContainer.visibility == View.VISIBLE && !isOverlayHiding) {
+            hideOverlay(animate = true)
         } else {
             showOverlay()
         }
     }
 
-    private fun showOverlay() {
+    private fun hideOverlay(animate: Boolean) {
+        uiHandler.removeCallbacks(hideOverlayRunnable)
+        overlayContainer.animate().cancel()
+        if (animate && overlayContainer.visibility == View.VISIBLE) {
+            isOverlayHiding = true
+            overlayContainer.animate()
+                .alpha(0f)
+                .setDuration(OVERLAY_FADE_OUT_MS)
+                .withEndAction {
+                    overlayContainer.visibility = View.GONE
+                    overlayContainer.alpha = 1f
+                    isOverlayHiding = false
+                }
+                .start()
+        } else {
+            overlayContainer.visibility = View.GONE
+            overlayContainer.alpha = 1f
+            isOverlayHiding = false
+        }
+    }
+
+    private fun ensureOverlayVisible() {
+        overlayContainer.animate().cancel()
+        isOverlayHiding = false
+        overlayContainer.alpha = 1f
         overlayContainer.visibility = View.VISIBLE
+    }
+
+    private fun showOverlay() {
+        scheduleOverlayHide()
         player?.let { activePlayer ->
             val seekUi = seekController.onPlayerProgress(activePlayer.toPlaybackSnapshot())
             updateProgress(seekUi.displayedPositionMs, activePlayer.duration)
         }
-        scheduleOverlayHide()
     }
 
     private fun scheduleOverlayHide() {
-        overlayContainer.visibility = View.VISIBLE
+        ensureOverlayVisible()
         uiHandler.removeCallbacks(hideOverlayRunnable)
         uiHandler.postDelayed(hideOverlayRunnable, OVERLAY_AUTO_HIDE_MS)
     }
@@ -941,7 +965,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun isPointInsideView(event: MotionEvent, view: View?): Boolean {
-        if (view == null || view.visibility != View.VISIBLE) {
+        if (view == null || !view.isShown) {
             return false
         }
         val location = IntArray(2)
@@ -981,6 +1005,7 @@ class PlayerActivity : BaseActivity() {
                         return
                     }
                     isAdjusting = true
+                    showOverlay()
                     swipeMode = if (absDx > absDy) {
                         SwipeMode.HORIZONTAL
                     } else {
@@ -1045,9 +1070,11 @@ class PlayerActivity : BaseActivity() {
                         updateProgress(activePlayer.currentPosition, activePlayer.duration)
                     }
                 }
+                if (isAdjusting) {
+                    scheduleOverlayHide()
+                }
                 isAdjusting = false
                 swipeMode = SwipeMode.NONE
-                scheduleOverlayHide()
             }
         }
     }
@@ -1526,7 +1553,7 @@ class PlayerActivity : BaseActivity() {
         }
         errorText.visibility = View.VISIBLE
         updateLoadingSpinner(false)
-        overlayContainer.visibility = View.VISIBLE
+        ensureOverlayVisible()
         uiHandler.removeCallbacks(hideOverlayRunnable)
     }
 
@@ -2064,8 +2091,10 @@ class PlayerActivity : BaseActivity() {
     }
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent): Boolean = true
+
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            showOverlay()
+            toggleOverlay()
             return true
         }
 
@@ -2109,6 +2138,7 @@ class PlayerActivity : BaseActivity() {
         private const val BUFFER_FOR_PLAYBACK_AFTER_SEEK_MS = 350
         private const val UI_UPDATE_INTERVAL_MS = 250L
         private const val OVERLAY_AUTO_HIDE_MS = 2500L
+        private const val OVERLAY_FADE_OUT_MS = 300L
         private const val GESTURE_TEXT_HIDE_MS = 1000L
         private const val SWIPE_SEEK_MAX_RANGE_MS = 10 * 60 * 1000L
         private const val LOADING_SPINNER_DELAY_MS = 150L
