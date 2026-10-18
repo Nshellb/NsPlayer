@@ -13,206 +13,127 @@ import com.nshell.nsplayer.R
 import kotlin.math.min
 
 private const val SEARCH_PREVIEW_VISIBLE_COUNT = 5
-private const val SEARCH_PREVIEW_FETCH_LIMIT = 20
-private const val SEARCH_PREVIEW_DEBOUNCE_MS = 180L
 
 internal fun MainActivity.setupSearchUi() {
-    searchPreviewAdapter = SearchPreviewAdapter { item ->
-        setSearchInputSilently(item.title)
-        submitSearchQuery(item.title)
-    }
+    searchPreviewAdapter = SearchPreviewAdapter { item -> submitSearchQuery(item.title) }
     searchPreviewList.layoutManager = LinearLayoutManager(this)
     searchPreviewList.adapter = searchPreviewAdapter
-    searchPreviewList.addItemDecoration(
-        DividerItemDecoration(this, DividerItemDecoration.VERTICAL)
-    )
-
+    searchPreviewList.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
+    // SavedStateHandle owns the input; view hierarchy restoration must not replay it as an edit.
+    searchInput.isSaveEnabled = false
     searchButton.setOnClickListener { enterSearchMode() }
     searchExitButton.setOnClickListener { exitSearchMode() }
-
     searchInput.setOnEditorActionListener { _, actionId, event ->
-        val isSearchAction = actionId == EditorInfo.IME_ACTION_SEARCH
-        val isEnterKey =
-            event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
-        if (isSearchAction || isEnterKey) {
+        if (actionId == EditorInfo.IME_ACTION_SEARCH ||
+            (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+        ) {
             submitSearchQuery()
             true
-        } else {
-            false
-        }
+        } else false
     }
-
     searchInput.addTextChangedListener(object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-
         override fun afterTextChanged(s: Editable?) {
-            if (suppressSearchTextChange) {
-                return
-            }
-            onSearchTextChanged(s?.toString().orEmpty())
+            if (!suppressSearchTextChange) searchViewModel.changeInput(s?.toString().orEmpty())
         }
     })
+    var renderedState: VideoSearchState? = null
+    searchViewModel.getState().observe(this) { state ->
+        renderSearchState(state, renderedState)
+        renderedState = state
+    }
+}
+
+internal fun MainActivity.syncSearchConfiguration() {
+    val current = browserState
+    searchViewModel.configure(
+        VideoSearchOptions(
+            current.sortMode, current.sortOrder, current.nomediaEnabled,
+            current.searchFoldersUseAll, current.searchFolders
+        ),
+        hasVideoPermission()
+    )
 }
 
 internal fun MainActivity.enterSearchMode() {
-    if (isSearchMode) {
-        return
-    }
-    if (selectionController.isSelectionMode()) {
-        selectionController.clearSelection()
-    }
-    committedSearchQuery = ""
-    isSearchMode = true
-    isShowingSearchResults = false
-    setSearchInputSilently("")
-    hidePreviewList()
-    updateHeaderState()
+    if (isSearchMode) return
+    selectionController.clearSelection()
+    syncSearchConfiguration()
+    searchViewModel.enter()
     searchInput.requestFocus()
     showKeyboard(searchInput)
 }
 
 internal fun MainActivity.exitSearchMode(): Boolean {
-    if (!isSearchMode) {
-        return false
-    }
-    previewDebounceRunnable?.let { searchUiHandler.removeCallbacks(it) }
-    previewDebounceRunnable = null
-    searchRequestCounter.incrementAndGet()
-    setSearchInputSilently("")
-    hidePreviewList()
-    committedSearchQuery = ""
-    isShowingSearchResults = false
-    isSearchMode = false
+    if (!isSearchMode) return false
+    selectionController.clearSelection()
+    val exited = searchViewModel.exit()
     hideKeyboard(searchInput)
-    updateHeaderState()
-    restoreBrowseAfterSearch()
-    return true
+    return exited
 }
 
 internal fun MainActivity.submitSearchQuery(sourceQuery: String? = null) {
-    if (!isSearchMode) {
-        return
-    }
-    val query = (sourceQuery ?: searchInput.text?.toString().orEmpty()).trim()
-    previewDebounceRunnable?.let { searchUiHandler.removeCallbacks(it) }
-    previewDebounceRunnable = null
-
-    if (query.isEmpty()) {
-        searchRequestCounter.incrementAndGet()
-        committedSearchQuery = ""
-        isShowingSearchResults = false
-        hidePreviewList()
-        restoreBrowseAfterSearch()
-        return
-    }
-    if (!hasVideoPermission()) {
-        requestMediaPermissions()
-        return
-    }
-
+    if (!isSearchMode) return
     selectionController.clearSelection()
-    hidePreviewList()
+    syncSearchConfiguration()
+    searchViewModel.submit(sourceQuery ?: searchInput.text?.toString().orEmpty())
     hideKeyboard(searchInput)
-    committedSearchQuery = query
-    isShowingSearchResults = true
+    if (!hasVideoPermission()) requestMediaPermissions()
+}
+
+private fun MainActivity.renderSearchState(state: VideoSearchState, previous: VideoSearchState?) {
+    setSearchInputSilently(state.input)
+    val modeChanged = previous?.active != state.active
+    if (modeChanged) updateHeaderState()
+    val surfaceChanged = previous?.showingResults != state.showingResults
+    if (state.showingResults) {
+        if (surfaceChanged) applyVideoDisplayMode()
+        if (surfaceChanged || previous?.results !== state.results) {
+            adapter.submit(state.results) { restoreTransientUiStateIfNeeded() }
+        }
+        emptyText.setText(R.string.search_empty)
+        emptyText.visibility = if (!state.loading && state.error == null &&
+            state.results?.isEmpty() == true
+        ) View.VISIBLE else View.GONE
+        refreshLayout.isRefreshing = false
+        hidePreviewList()
+    } else {
+        if (surfaceChanged || modeChanged) {
+            applyVideoDisplayMode()
+            renderLoadState(viewModel.currentLoadState)
+        }
+        renderSearchPreview(if (state.active) state.previews else emptyList())
+    }
+    if (state.active && !state.showingResults && state.input.isBlank() &&
+        previous?.input?.isNotBlank() == true
+    ) {
+        renderLoadState(viewModel.currentLoadState)
+    }
+    if (state.active) refreshLayout.isRefreshing = false
+    renderSearchStatus(state)
+}
+
+internal fun MainActivity.renderSearchStatus(state: VideoSearchState) {
+    if (!state.active || (!state.showingResults && state.input.isBlank())) return
+    statusText.setOnClickListener(null)
+    statusText.isClickable = false
     statusText.visibility = View.GONE
-    val requestId = searchRequestCounter.incrementAndGet()
-    val current = browserState
-
-    searchExecutor.execute {
-        if (searchRequestCounter.get() != requestId) {
-            return@execute
+    when {
+        state.error != null -> {
+            statusText.setText(
+                if (state.error is SecurityException) R.string.permission_needed
+                else R.string.search_load_failed
+            )
+            statusText.visibility = View.VISIBLE
+            statusText.setOnClickListener {
+                syncSearchConfiguration()
+                if (hasVideoPermission()) searchViewModel.refresh() else requestMediaPermissions()
+            }
         }
-        val results = searchRepository.searchVideos(
-            query = query,
-            sortMode = current.sortMode,
-            sortOrder = current.sortOrder,
-            resolver = contentResolver,
-            nomediaEnabled = current.nomediaEnabled,
-            searchFoldersUseAll = current.searchFoldersUseAll,
-            searchFolders = current.searchFolders
-        )
-        runOnUiThread {
-            if (!isSearchMode || !isShowingSearchResults) {
-                return@runOnUiThread
-            }
-            if (searchRequestCounter.get() != requestId) {
-                return@runOnUiThread
-            }
-            if (committedSearchQuery != query) {
-                return@runOnUiThread
-            }
-            list.layoutManager = LinearLayoutManager(this)
-            adapter.setVideoDisplayMode(VideoDisplayMode.LIST)
-            adapter.submit(results)
-            emptyText.text = getString(R.string.search_empty)
-            emptyText.visibility = if (results.isEmpty()) View.VISIBLE else View.GONE
-            refreshLayout.isRefreshing = false
-        }
-    }
-}
-
-private fun MainActivity.onSearchTextChanged(rawQuery: String) {
-    if (!isSearchMode) {
-        return
-    }
-    val query = rawQuery.trim()
-    // Invalidate in-flight results immediately, including when the input is cleared.
-    searchRequestCounter.incrementAndGet()
-    if (isShowingSearchResults) {
-        isShowingSearchResults = false
-        committedSearchQuery = ""
-        restoreBrowseAfterSearch()
-    }
-    previewDebounceRunnable?.let { searchUiHandler.removeCallbacks(it) }
-    previewDebounceRunnable = null
-
-    if (query.isEmpty()) {
-        hidePreviewList()
-        return
-    }
-    if (!hasVideoPermission()) {
-        hidePreviewList()
-        return
-    }
-
-    val runnable = Runnable { requestSearchPreview(query) }
-    previewDebounceRunnable = runnable
-    searchUiHandler.postDelayed(runnable, SEARCH_PREVIEW_DEBOUNCE_MS)
-}
-
-private fun MainActivity.requestSearchPreview(query: String) {
-    if (!isSearchMode || query.isBlank()) {
-        hidePreviewList()
-        return
-    }
-    val requestId = searchRequestCounter.incrementAndGet()
-    val current = browserState
-
-    searchExecutor.execute {
-        if (searchRequestCounter.get() != requestId) {
-            return@execute
-        }
-        val previewItems = searchRepository.searchVideos(
-            query = query,
-            sortMode = current.sortMode,
-            sortOrder = current.sortOrder,
-            resolver = contentResolver,
-            nomediaEnabled = current.nomediaEnabled,
-            searchFoldersUseAll = current.searchFoldersUseAll,
-            searchFolders = current.searchFolders,
-            limit = SEARCH_PREVIEW_FETCH_LIMIT
-        )
-        runOnUiThread {
-            if (!isSearchMode || isShowingSearchResults) {
-                return@runOnUiThread
-            }
-            if (searchRequestCounter.get() != requestId) {
-                return@runOnUiThread
-            }
-            renderSearchPreview(previewItems)
+        state.showingResults && state.loading && state.results == null -> {
+            statusText.setText(R.string.status_loading)
+            statusText.visibility = View.VISIBLE
         }
     }
 }
@@ -224,8 +145,7 @@ private fun MainActivity.renderSearchPreview(items: List<DisplayItem>) {
     }
     searchPreviewAdapter.submitList(items)
     val itemHeight = resources.getDimensionPixelSize(R.dimen.search_preview_item_height)
-    val visibleCount = min(items.size, SEARCH_PREVIEW_VISIBLE_COUNT)
-    val targetHeight = itemHeight * visibleCount
+    val targetHeight = itemHeight * min(items.size, SEARCH_PREVIEW_VISIBLE_COUNT)
     val params = searchPreviewList.layoutParams
     if (params.height != targetHeight) {
         params.height = targetHeight
@@ -239,22 +159,15 @@ internal fun MainActivity.hidePreviewList() {
     searchPreviewList.visibility = View.GONE
 }
 
-internal fun MainActivity.restoreBrowseAfterSearch() {
-    val loadState = viewModel.currentLoadState
-    if (!isSearchMode) {
-        applyVideoDisplayMode()
-    }
-    renderLoadState(loadState)
-    if (loadState.items == null && loadState.phase == VideoBrowserLoadState.Phase.IDLE) {
-        loadIfPermitted(useCache = true)
-    }
-}
-
 private fun MainActivity.setSearchInputSilently(text: String) {
+    if (searchInput.text?.toString() == text) return
     suppressSearchTextChange = true
-    searchInput.setText(text)
-    searchInput.setSelection(searchInput.text?.length ?: 0)
-    suppressSearchTextChange = false
+    try {
+        searchInput.setText(text)
+        searchInput.setSelection(text.length)
+    } finally {
+        suppressSearchTextChange = false
+    }
 }
 
 private fun MainActivity.showKeyboard(view: View) {

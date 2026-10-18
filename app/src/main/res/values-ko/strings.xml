@@ -17,6 +17,7 @@
     <string name="search_hint">파일 검색</string>
     <string name="search_close">검색 닫기</string>
     <string name="search_empty">검색 결과가 없습니다.</string>
+    <string name="search_load_failed">검색 결과를 불러오지 못했습니다. 눌러서 다시 시도하세요.</string>
     <string name="browse_mode_button">보기 모드 선택</string>
     <string name="settings_title">설정</string>
     <string name="settings_mode_title">보기 모드</string>

@@ -131,13 +131,13 @@ internal fun MainActivity.restoreTransientUiStateIfNeeded() {
 }
 
 internal fun MainActivity.renderLoadState(loadState: VideoBrowserLoadState) {
+    if (isShowingSearchResults) return
     renderItems(loadState.items)
     refreshLayout.isRefreshing = loadState.isRefreshing
     statusText.setOnClickListener(null)
     statusText.isClickable = false
     if (!hasVideoPermission()) return
     statusText.visibility = View.GONE
-    if (isSearchMode && isShowingSearchResults) return
 
     when {
         loadState.error != null -> {
@@ -151,6 +151,7 @@ internal fun MainActivity.renderLoadState(loadState: VideoBrowserLoadState) {
             statusText.visibility = View.VISIBLE
         }
     }
+    renderSearchStatus(searchViewModel.currentState)
 }
 
 internal fun MainActivity.applySettings(settings: SettingsState) {
@@ -180,6 +181,7 @@ internal fun MainActivity.applySettings(settings: SettingsState) {
     }
     if (!initialSettingsApplied) {
         initialSettingsApplied = true
+        syncSearchConfiguration()
         loadWithSettings()
     } else if (nomediaChanged || searchChanged) {
         loadIfPermitted(useCache = true)

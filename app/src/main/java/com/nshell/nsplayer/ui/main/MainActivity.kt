@@ -2,8 +2,6 @@ package com.nshell.nsplayer.ui.main
 
 import android.content.Intent
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.Parcelable
 import android.os.SystemClock
 import android.view.View
@@ -25,11 +23,9 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.nshell.nsplayer.R
 import com.nshell.nsplayer.data.repository.MediaStoreVideoRepository
-import com.nshell.nsplayer.data.repository.VideoRepository
 import com.nshell.nsplayer.ui.settings.SettingsViewModel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicLong
 
 class MainActivity : BaseActivity() {
     internal lateinit var statusText: TextView
@@ -53,6 +49,7 @@ class MainActivity : BaseActivity() {
     internal lateinit var searchPreviewAdapter: SearchPreviewAdapter
     internal lateinit var adapter: VideoListAdapter
     internal lateinit var viewModel: VideoBrowserViewModel
+    internal lateinit var searchViewModel: VideoSearchViewModel
     internal lateinit var settingsViewModel: SettingsViewModel
     internal lateinit var selectionController: SelectionController
     internal lateinit var transferController: TransferController
@@ -66,17 +63,11 @@ class MainActivity : BaseActivity() {
     internal var pendingRestoredSelectionKeys: ArrayList<String>? = null
     internal var pendingListLayoutState: Parcelable? = null
     internal lateinit var mediaItemController: MediaItemController
-    internal var isSearchMode = false
-    internal var isShowingSearchResults = false
-    internal var committedSearchQuery = ""
-    internal var previewDebounceRunnable: Runnable? = null
+    internal val isSearchMode: Boolean get() = searchViewModel.currentState.active
+    internal val isShowingSearchResults: Boolean get() = searchViewModel.currentState.showingResults
     internal var suppressSearchTextChange = false
-    internal val searchUiHandler = Handler(Looper.getMainLooper())
     internal val preferences by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
     private val playlistExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    internal val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    internal val searchRepository: VideoRepository = MediaStoreVideoRepository()
-    internal val searchRequestCounter = AtomicLong(0L)
 
     private val copyDestinationLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -154,9 +145,13 @@ class MainActivity : BaseActivity() {
             this,
             VideoBrowserViewModelFactory(this, this, intent.extras)
         )[VideoBrowserViewModel::class.java]
+        searchViewModel = ViewModelProvider(
+            this, VideoSearchViewModelFactory(this, this)
+        )[VideoSearchViewModel::class.java]
         returningFromPlayer = savedInstanceState?.getBoolean(STATE_RETURNING_FROM_PLAYER) ?: false
         restoreTransientUiState(savedInstanceState)
         settingsViewModel = ViewModelProvider(this)[SettingsViewModel::class.java]
+        setupSearchUi()
         viewModel.getLoadState().observe(this) { renderLoadState(it) }
         var observedState = browserState
         viewModel.getState().observe(this) { state ->
@@ -183,6 +178,7 @@ class MainActivity : BaseActivity() {
             if (headerChanged) {
                 updateHeaderState()
             }
+            if (initialSettingsApplied) syncSearchConfiguration()
         }
         settingsViewModel.getSettings().observe(this) { settings ->
             applySettings(settings)
@@ -192,7 +188,10 @@ class MainActivity : BaseActivity() {
             activity = this,
             launchRenamePermission = { request -> renamePermissionLauncher.launch(request) },
             launchFolderPicker = { folderRenameTreeLauncher.launch(null) },
-            onReloadRequested = { loadIfPermitted() }
+            onReloadRequested = {
+                loadIfPermitted()
+                searchViewModel.refresh()
+            }
         )
         transferController = TransferController(
             activity = this,
@@ -202,6 +201,7 @@ class MainActivity : BaseActivity() {
             onReloadRequested = {
                 pendingRestoredSelectionKeys = null
                 loadIfPermitted()
+                searchViewModel.refresh()
             }
         )
 
@@ -209,7 +209,6 @@ class MainActivity : BaseActivity() {
         selectionCopyButton.setOnClickListener { transferController.startCopySelected() }
         selectionDeleteButton.setOnClickListener { transferController.startDeleteSelected() }
         selectionPlayButton.setOnClickListener { playSelectedItems() }
-        setupSearchUi()
         settingsButton.setOnClickListener { showSettingsDialog(it) }
 
         val backButton = findViewById<Button>(R.id.backButton)
@@ -264,6 +263,7 @@ class MainActivity : BaseActivity() {
             browserBackGuard.onNavigationHandled()
         }
         settingsViewModel.refresh()
+        if (initialSettingsApplied) syncSearchConfiguration()
     }
 
     internal fun launchPlayer(intent: Intent) {
@@ -273,9 +273,7 @@ class MainActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        searchUiHandler.removeCallbacksAndMessages(null)
         playlistExecutor.shutdown()
-        searchExecutor.shutdown()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -299,6 +297,7 @@ class MainActivity : BaseActivity() {
         if (requestCode != REQUEST_PERMISSION) {
             return
         }
+        syncSearchConfiguration()
         if (hasVideoPermission()) {
             loadIfPermitted()
         } else {
